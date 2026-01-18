@@ -1,0 +1,54 @@
+🍷 Relatório de Desenvolvimento: Taverna Reserva
+Status do Projeto: Frontend Estruturado & UI/UX de Luxo Finalizada
+
+Stack: React, TypeScript, Tailwind CSS (v4), Lucide React, Fastify, MongoDB.
+
+✅ 1. O que já foi realizado (Concluído)
+Arquitetura e Rotas
+Unificação de Rotas: Centralização de páginas redundantes. Rotas como /elite, /minha-cave, /profile e /orders agora redirecionam para componentes mestres (Club e Dashboard), reduzindo a complexidade do App.tsx.
+
+Navegação Inteligente: Implementação do react-router-dom com suporte a parâmetros dinâmicos para Terroirs e Produtos.
+
+Interface de Usuário (UI/UX)
+Identidade Visual: Padronização da paleta de cores em Zinc-950 (preto puro) e Amber-500/Ocre (#c2410c), evocando sofisticação.
+
+Header de Luxo: Menu responsivo com busca minimalista, contador de carrinho em tempo real e estados de autenticação diferenciados.
+
+Home Page: Grid de Terroirs mundiais com efeitos de vidro (Glassmorphism) e transições suaves.
+
+Página do Clube: Sistema de planos (Terroir, Reserva, Grand Cru) com hierarquia visual e animações personalizadas (bounce-subtle).
+
+Dashboard do Sommelier: Central do usuário unificada contendo histórico de pedidos, status de entrega e a "Minha Cave" (favoritos).
+
+Configurações Técnicas
+Tailwind v4 Setup: Configuração do @theme no CSS e tailwind.config.js com keyframes de animação e fontes de luxo (Cinzel e Playfair Display).
+
+Scrollbar Personalizada: Estilização global dos eixos de rolagem para manter a estética Dark Mode.
+
+Tratamento de Erros: Resolução de conflitos de imports e correção de ícones inexistentes.
+
+🛠 2. O que falta fazer (Pendências)
+Integração com Backend (Prioridade Alta)
+Conexão API: Substituir os dados estáticos (vinhos.ts) por chamadas reais via axios ou fetch para o backend Fastify.
+
+Persistência da "Cave": Criar o endpoint de favoritos no MongoDB para que os vinhos marcados pelo usuário não sumam ao atualizar a página.
+
+Fluxo de Autenticação Real: Ligar os formulários de Login/Register com o JWT (JSON Web Token) do backend.
+
+Funcionalidades de E-commerce
+Checkout Funcional: Implementar a lógica de cálculo de frete e integração (simulada ou real) com gateway de pagamento.
+
+Filtros de Catálogo: Ativar a lógica de busca e filtros por região/preço na página de Catalog.
+
+Polimento e Performance
+Skeleton Screens: Adicionar estados de carregamento enquanto os dados do MongoDB são buscados.
+
+Responsividade Final: Ajustar pequenos detalhes de padding em telas de tablets.
+
+🗺️ Mapa de Fluxo do Sistema
+📈 Próximos Passos Sugeridos
+Backend - Schema: Criar o modelo de dados de Vinho e User no MongoDB.
+
+Backend - Rotas: Desenvolver o CRUD de produtos e a rota de histórico de pedidos.
+
+Frontend - Hooks: Criar um hook customizado useApi para centralizar as chamadas ao servidor.

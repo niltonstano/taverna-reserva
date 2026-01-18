@@ -1,0 +1,108 @@
+/* 1. FONTES EXTERNAS SEMPRE EM PRIMEIRO LUGAR */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+/* 2. IMPORTAÇÃO DO TAILWIND V4 */
+@import 'tailwindcss';
+
+/* 3. CONFIGURAÇÃO DO TEMA (Design System) */
+@theme {
+  /* Cores Principais da Taverna */
+  --color-brand: #c2410c;
+  --color-brand-hover: #ea580c;
+
+  /* Cores de Fundo */
+  --color-zinc-950: #050505;
+  --color-zinc-900: #0a0a0a;
+
+  /* Fontes Nobres */
+  --font-serif: 'Playfair Display', serif;
+  --font-cinzel: 'Cinzel', serif;
+
+  /* Animações nativas */
+  --animate-fade-in: fade-in 0.6s ease-out forwards;
+  --animate-zoom-in: zoom-in 0.3s ease-out;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes zoom-in {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+/* 4. ESTILOS GLOBAIS */
+@layer base {
+  body {
+    background-color: #050505;
+    color: #f4f4f5;
+    /* Suporte para scrollbar elegante */
+    scrollbar-color: #c2410c #050505;
+    scrollbar-width: thin;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* 5. UTILITÁRIOS CUSTOMIZADOS */
+@layer utilities {
+  /* Scrollbar para Chrome, Safari, Edge */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #c2410c;
+    border-radius: 10px;
+  }
+
+  /* Efeito de Vidro (Glassmorphism) */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.01);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Glow lateral opcional */
+  .bg-radial-gradient {
+    background-image: radial-gradient(circle at center, var(--tw-gradient-from), var(--tw-gradient-to));
+  }
+}
+
+/* Animação para Toasts/Alertas */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation: slide-in-right 0.4s ease-out;
+}
