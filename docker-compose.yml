@@ -1,11 +1,13 @@
 version: "3.8"
 
 services:
-  # --- BANCO DE DADOS (Persistência) ---
+  # --- BANCO DE DADOS (Persistência com Auto-Cura) ---
   mongodb:
     image: mongo:latest
     container_name: taverna_db
     restart: always
+    ports:
+      - "27017:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS:-admin}
@@ -13,39 +15,48 @@ services:
       - mongo-data:/data/db
     networks:
       - taverna-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # --- BACKEND (API Fastify) ---
+  # --- BACKEND (API Fastify com Dependência Inteligente) ---
   api:
     build: ./backend
     container_name: taverna_api
-    restart: always
+    restart: unless-stopped
     ports:
-      - "3334:3333" # Acessamos por fora via 3334 para evitar portas zumbis
+      - "3334:3333"
     env_file:
       - .env
     environment:
       - NODE_ENV=development
+      - HOST=0.0.0.0
       - PORT=3333
-      - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna-reserva?authSource=admin
+      - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna?authSource=admin
+      - JWT_SECRET=${JWT_SECRET}
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - taverna-network
 
-  # --- FRONTEND (React + Nginx) ---
+  # --- FRONTEND (Interface React + Nginx) ---
   frontend:
     build: ./frontend
     container_name: taverna_web
-    restart: always
+    restart: unless-stopped
     ports:
-      - "8080:80" # Interface acessível em http://localhost:8080
+      - "8080:80"
     environment:
-      - VITE_API_URL=http://localhost:3334/api/v1
+      - VITE_API_URL=http://localhost:3333/api/v1
     depends_on:
       - api
     networks:
       - taverna-network
 
+# --- INFRAESTRUTURA DE REDE E VOLUMES ---
 networks:
   taverna-network:
     driver: bridge
