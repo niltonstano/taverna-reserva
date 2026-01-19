@@ -6,34 +6,46 @@ export function Categories() {
   const navigate = useNavigate();
 
   const categories = [
-    { name: 'Tintos', desc: 'Encorpados e Intensos', icon: <Wine size={20} />, path: '/catalog?category=Tinto', color: 'hover:border-red-950/40' },
+    {
+      name: 'Tintos',
+      desc: 'Encorpados e Intensos',
+      icon: <Wine size={20} />,
+      path: '/catalog?category=tinto',
+      color: 'hover:border-red-950/40',
+    },
     {
       name: 'Brancos',
       desc: 'Leves e Refrescantes',
       icon: <Sparkles size={20} />,
-      path: '/catalog?category=Branco',
+      path: '/catalog?category=branco',
       color: 'hover:border-yellow-600/20',
     },
-    { name: 'Rosés', desc: 'Delicadeza e Frescor', icon: <Flame size={20} />, path: '/catalog?category=Rosé', color: 'hover:border-pink-600/20' },
+    {
+      name: 'Rosés',
+      desc: 'Delicadeza e Frescor',
+      icon: <Flame size={20} />,
+      path: '/catalog?category=rosé',
+      color: 'hover:border-pink-600/20',
+    },
     {
       name: 'Espumantes',
       desc: 'Celebração e Borbulhas',
       icon: <Sparkles size={20} />,
-      path: '/catalog?category=Espumante',
+      path: '/catalog?category=espumante',
       color: 'hover:border-blue-400/20',
     },
     {
       name: 'Sobremesa',
       desc: 'Doces e Licorosos',
       icon: <Moon size={20} />,
-      path: '/catalog?category=Sobremesa',
+      path: '/catalog?category=sobremesa',
       color: 'hover:border-amber-600/20',
     },
     {
       name: 'Acessórios',
       desc: 'A Arte de Servir',
       icon: <ShoppingBag size={20} />,
-      path: '/catalog?category=Acessorios',
+      path: '/catalog?category=acessorios',
       color: 'hover:border-zinc-500/30',
     },
   ];

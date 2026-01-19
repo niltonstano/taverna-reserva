@@ -21,25 +21,30 @@ interface WineCardProps {
 }
 
 export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardProps) {
+  // 1. Definições Básicas
   const name = wine.name || wine.nome || 'Rótulo Premium';
   const score = wine.pontuacao || 95;
   const origin = wine.origem || 'Terroir Selecionado';
+  const FALLBACK_LOCAL = '/vinhos/rioja.webp';
 
+  // 2. Tratamento de Preço
   const rawPrice = wine.price || (typeof wine.preco === 'string' ? parseFloat(wine.preco.replace(/[^\d,]/g, '').replace(',', '.')) : wine.preco) || 0;
 
-  const FALLBACK_LOCAL = '/vinhos/rioja.webp';
+  // 3. Lógica de Imagem Corrigida
   const dbImage = (wine.image_url || wine.imagem || '').trim();
-
   let imagePath = FALLBACK_LOCAL;
+
   if (dbImage) {
     if (dbImage.startsWith('http')) {
       imagePath = dbImage;
     } else {
-      const cleanPath = dbImage.startsWith('/') ? dbImage : `/${dbImage}`;
-      imagePath = cleanPath.startsWith('/vinhos') ? cleanPath : `/vinhos${cleanPath}`;
+      // Garante que o caminho comece com /vinhos/ e não tenha barras duplicadas
+      const cleanPath = dbImage.replace(/^\/+/, ''); // Remove barras no início se existirem
+      imagePath = cleanPath.startsWith('vinhos') ? `/${cleanPath}` : `/vinhos/${cleanPath}`;
     }
   }
 
+  // --- RENDERIZAÇÃO COMPACTA ---
   if (variant === 'compact') {
     return (
       <div
@@ -47,7 +52,14 @@ export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardPr
         className="flex items-center gap-4 p-3 bg-zinc-900/40 border border-white/5 rounded-2xl hover:bg-zinc-800/60 transition-all cursor-pointer group"
       >
         <div className="w-14 h-20 bg-black/40 rounded-xl flex items-center justify-center p-2 shrink-0 overflow-hidden">
-          <img src={imagePath} alt={name} className="h-full w-auto object-contain transition-transform group-hover:scale-110" />
+          <img
+            src={imagePath}
+            alt={name}
+            className="h-full w-auto object-contain transition-transform group-hover:scale-110"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = FALLBACK_LOCAL;
+            }}
+          />
         </div>
         <div className="flex-1 overflow-hidden">
           <h4 className="text-white font-serif italic text-sm truncate">{name}</h4>
@@ -66,9 +78,10 @@ export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardPr
     );
   }
 
+  // --- RENDERIZAÇÃO EM GRADE (PADRÃO) ---
   return (
     <div className="group relative flex flex-col h-full bg-[#0a0a0a] border border-white/[0.03] rounded-[45px] p-8 transition-all duration-700 hover:border-[#c2410c]/40 hover:shadow-[0_0_50px_-12px_rgba(194,65,12,0.3)]">
-      {/* 1. Score Badge */}
+      {/* Score Badge */}
       <div className="absolute top-6 right-8 z-20">
         <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#c2410c]/30 shadow-xl">
           <Star size={12} className="text-[#c2410c] fill-[#c2410c]" />
@@ -76,7 +89,7 @@ export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardPr
         </div>
       </div>
 
-      {/* 2. Container da Garrafa */}
+      {/* Container da Garrafa */}
       <div onClick={() => onAction?.(wine)} className="relative flex-grow flex flex-col items-center justify-center cursor-pointer min-h-[380px]">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-[#c2410c]/20 rounded-full blur-[80px] opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
 
@@ -91,7 +104,6 @@ export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardPr
         />
 
         <div className="mt-8 text-center w-full">
-          {/* PADRONIZAÇÃO: Diamante em vez de MapPin para evitar o "pontinho" */}
           <div className="flex items-center justify-center gap-3 text-zinc-500 text-[10px] uppercase tracking-[0.3em] font-bold mb-3">
             <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
             <span className="animate-in fade-in duration-1000">{origin}</span>
@@ -104,7 +116,7 @@ export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardPr
         </div>
       </div>
 
-      {/* 3. Footer de Ação */}
+      {/* Footer de Ação */}
       <div
         onClick={(e) => {
           e.stopPropagation();

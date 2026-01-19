@@ -21,21 +21,23 @@ services:
       timeout: 5s
       retries: 5
 
-  # --- BACKEND (API Fastify com Dependência Inteligente) ---
+  # --- BACKEND (API Fastify) ---
   api:
     build: ./backend
     container_name: taverna_api
     restart: unless-stopped
     ports:
-      - "3334:3333"
+      - "3334:3333" # Acessível no seu navegador via localhost:3334
     env_file:
       - .env
     environment:
       - NODE_ENV=development
-      - HOST=0.0.0.0
+      - HOST=0.0.0.0 # <--- Força o Fastify a ouvir conexões externas
       - PORT=3333
-      - MONGO_URL=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna?authSource=admin
+      - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna?authSource=admin
       - JWT_SECRET=${JWT_SECRET}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
     depends_on:
       mongodb:
         condition: service_healthy
