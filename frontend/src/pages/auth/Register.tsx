@@ -2,17 +2,24 @@ import { ArrowRight, Wine } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Footer } from '../../components/common/Footer';
+import { useAuth } from '../../context/AuthContext'; // Importado o contexto de autenticação
 
 export function Register() {
   const navigate = useNavigate();
-  // 1. Estados para os campos
+  const { signIn } = useAuth(); // Pegamos a função de login
+
+  // Estados para os campos
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 2. Função de submissão
+  // Função de submissão corrigida para ir direto ao Dashboard
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
     try {
       const response = await fetch('http://localhost:3334/api/v1/auth/customer/register', {
         method: 'POST',
@@ -22,14 +29,24 @@ export function Register() {
 
       const data = await response.json();
 
-      if (data.success) {
-        // Redireciona para o login após sucesso
-        navigate('/login');
+      if (response.ok) {
+        // 1. Registro com sucesso! Agora fazemos o login automático
+        // Isso vai salvar o Token e os dados do usuário no localStorage
+        // Mude de:
+
+        // Para (com chaves):
+        await signIn({ email, password });
+
+        // 2. Redireciona para o Dashboard do cliente
+        navigate('/dashboard');
       } else {
-        alert(data.message || 'Erro ao criar conta');
+        alert(data.message || 'Erro ao criar conta. Verifique seus dados.');
       }
     } catch (error) {
       console.error('Erro na requisição:', error);
+      alert('Erro ao conectar com o servidor da Taverna.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -52,7 +69,6 @@ export function Register() {
           </h1>
         </header>
 
-        {/* 3. Adicionado onSubmit no Form */}
         <form className="space-y-5" onSubmit={handleSubmit}>
           <div className="border-b border-white/20 focus-within:border-[#c2410c] transition-all pb-2">
             <input
@@ -88,9 +104,13 @@ export function Register() {
           </div>
 
           <div className="pt-2">
-            <button type="submit" className="flex items-center gap-5 group">
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className={`flex items-center gap-5 group ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
               <span className="font-cinzel text-[9px] font-black tracking-[0.4em] uppercase group-hover:text-[#c2410c] transition-colors text-zinc-100">
-                SOLICITAR
+                {isSubmitting ? 'PROCESSANDO...' : 'SOLICITAR'}
               </span>
               <div className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center group-hover:border-[#c2410c] group-hover:bg-[#c2410c] transition-all duration-500">
                 <ArrowRight size={14} className="text-white group-hover:text-black transition-colors" />

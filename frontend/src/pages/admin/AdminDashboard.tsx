@@ -27,15 +27,18 @@ export function AdminDashboard() {
     }
   }, []);
 
-  // Busca de Clientes (Usuários)
+  // Busca de Clientes (Usuários) - CORRIGIDO PARA API V1
   const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      // Ajuste o endpoint conforme sua API (ex: /users ou /admin/users)
-      const response = await api.get('/users');
-      setUsers(response.data.data || response.data || []);
+      // Ajustado para o endpoint administrativo correto
+      const response = await api.get('/admin/customers');
+      // No seu backend, os dados vêm dentro de .data.data
+      setUsers(response.data.data || []);
+      console.log('✅ Clientes carregados com sucesso');
     } catch (error) {
-      console.error('Erro ao buscar clientes:', error);
+      console.error('❌ Erro ao buscar clientes:', error);
+      setUsers([]);
     } finally {
       setLoading(false);
     }
@@ -132,7 +135,7 @@ export function AdminDashboard() {
               <EmptyState message="Nenhum rótulo encontrado na adega." />
             )
           ) : (
-            /* LISTA DE CLIENTES */
+            /* LISTA DE CLIENTES - CORRIGIDO */
             <div className="p-8">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {users.length > 0 ? (
@@ -145,7 +148,8 @@ export function AdminDashboard() {
                         <div className="w-12 h-12 bg-zinc-800 rounded-2xl flex items-center justify-center text-[#c2410c]">
                           <Users size={24} />
                         </div>
-                        {client.isAdmin && (
+                        {/* SELO ADMIN CORRIGIDO PARA NOVO SCHEMA */}
+                        {client.role === 'admin' && (
                           <span className="flex items-center gap-1 text-[8px] bg-[#c2410c]/20 text-[#c2410c] px-2 py-1 rounded-full font-black uppercase">
                             <ShieldCheck size={10} /> Admin
                           </span>
@@ -158,10 +162,10 @@ export function AdminDashboard() {
                       </div>
                       <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center">
                         <span className="text-[9px] text-zinc-600 uppercase font-cinzel">
-                          Membro desde: {new Date(client.createdAt).toLocaleDateString()}
+                          Membro desde: {client.createdAt ? new Date(client.createdAt).toLocaleDateString() : 'N/A'}
                         </span>
-                        {/* Botão de excluir cliente (opcional) */}
-                        {!client.isAdmin && (
+                        {/* BOTÃO EXCLUIR CONDICIONAL */}
+                        {client.role !== 'admin' && (
                           <button className="text-zinc-700 hover:text-red-500 transition-colors">
                             <Trash2 size={14} />
                           </button>
@@ -191,7 +195,6 @@ export function AdminDashboard() {
   );
 }
 
-// Subcomponente para estados vazios
 function EmptyState({ message }: { message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-40 text-center text-zinc-500">

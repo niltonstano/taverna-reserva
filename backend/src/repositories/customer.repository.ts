@@ -2,29 +2,39 @@ import { CustomerModel, ICustomerData } from "../models/customer.model.js";
 
 export class CustomerRepository {
   /**
-   * Busca um cliente por e-mail, incluindo a senha (útil para o Auth Service).
+   * ✅ Versão Produção: Busca paginada com ordenação
+   * @param skip Número de registros a pular
+   * @param limit Número de registros a retornar
+   */
+  public async findAll(
+    skip: number = 0,
+    limit: number = 50,
+  ): Promise<ICustomerData[]> {
+    return (await CustomerModel.find()
+      .sort({ createdAt: -1 }) // Mais recentes primeiro
+      .skip(skip)
+      .limit(limit)
+      .lean() // Performance: retorna POJO (Plain Old JavaScript Objects)
+      .exec()) as ICustomerData[];
+  }
+
+  /**
+   * Busca um cliente por e-mail, incluindo a senha (necessário para Login).
    */
   public async findByEmail(email: string): Promise<ICustomerData | null> {
-    return await CustomerModel.findOne({ email })
-      .select("+password") 
+    return (await CustomerModel.findOne({ email })
+      .select("+password")
       .lean()
-      .exec() as ICustomerData | null;
+      .exec()) as ICustomerData | null;
   }
 
   /**
    * Busca um cliente por ID.
    */
   public async findById(id: string): Promise<ICustomerData | null> {
-    return await CustomerModel.findById(id)
+    return (await CustomerModel.findById(id)
       .lean()
-      .exec() as ICustomerData | null;
-  }
-
-  /**
-   * Retorna todos os clientes.
-   */
-  public async findAll(): Promise<ICustomerData[]> {
-    return await CustomerModel.find().lean().exec() as ICustomerData[];
+      .exec()) as ICustomerData | null;
   }
 
   /**
@@ -36,20 +46,23 @@ export class CustomerRepository {
   }
 
   /**
-   * Atualiza um cliente existente.
+   * Atualiza um cliente existente por ID.
    */
-  public async update(id: string, data: Partial<ICustomerData>): Promise<ICustomerData | null> {
-    return await CustomerModel.findByIdAndUpdate(id, data, { new: true })
+  public async update(
+    id: string,
+    data: Partial<ICustomerData>,
+  ): Promise<ICustomerData | null> {
+    return (await CustomerModel.findByIdAndUpdate(id, data, { new: true })
       .lean()
-      .exec() as ICustomerData | null;
+      .exec()) as ICustomerData | null;
   }
 
   /**
-   * Remove um cliente do banco de dados.
+   * Remove um cliente do banco de dados por ID.
    */
   public async delete(id: string): Promise<ICustomerData | null> {
-    return await CustomerModel.findByIdAndDelete(id)
+    return (await CustomerModel.findByIdAndDelete(id)
       .lean()
-      .exec() as ICustomerData | null;
+      .exec()) as ICustomerData | null;
   }
 }
