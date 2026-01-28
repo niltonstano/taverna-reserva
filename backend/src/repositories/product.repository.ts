@@ -1,58 +1,23 @@
 import { ClientSession, Model, Types } from "mongoose";
-import { IProductDocument, ProductModel } from "../models/product.model.js";
-
-// Criamos um tipo para o objeto "Lean" (puro)
-// Isso remove o erro de FlattenMaps
-type IProduct = any; // Ou defina sua interface de dados pura aqui
+import { IProduct, IProductLean } from "../interfaces/product.interface.js";
+import { ProductModel } from "../models/product.model.js";
 
 export class ProductRepository {
-  constructor(private readonly model: Model<IProductDocument> = ProductModel) {}
+  constructor(private readonly model: Model<IProduct> = ProductModel) {}
 
-  /**
-   * ✅ NÍVEL PRODUÇÃO: Atualização de estoque atômica
-   */
-  async updateStock(
-    productId: string,
-    quantity: number,
-    session?: ClientSession
-  ): Promise<any | null> {
-    // Trocamos IProductDocument por any ou sua interface pura
-    if (!Types.ObjectId.isValid(productId)) return null;
+  async findById(id: string): Promise<IProductLean | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
 
-    const filter =
-      quantity < 0
-        ? {
-            _id: new Types.ObjectId(productId),
-            stock: { $gte: Math.abs(quantity) },
-          }
-        : { _id: new Types.ObjectId(productId) };
-
-    const result = await this.model
-      .findOneAndUpdate(
-        filter,
-        { $inc: { stock: quantity } },
-        { session, new: true, lean: true }
-      )
-      .exec();
-
-    if (!result && quantity < 0) {
-      throw new Error(
-        `Estoque insuficiente ou produto inexistente: ${productId}`
-      );
-    }
-
-    return result;
+    return this.model.findById(id).lean<IProductLean>().exec();
   }
 
-  /**
-   * ✅ PAGINAÇÃO DE PRODUÇÃO
-   */
   async findPaginated(
-    page: number = 1,
-    limit: number = 10,
-    searchTerm?: string
-  ) {
+    page = 1,
+    limit = 10,
+    searchTerm?: string,
+  ): Promise<{ data: IProductLean[]; total: number }> {
     const skip = (page - 1) * limit;
+
     const filter = searchTerm
       ? { name: { $regex: searchTerm, $options: "i" }, active: true }
       : { active: true };
@@ -63,44 +28,112 @@ export class ProductRepository {
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 })
-        .lean() // O segredo é não forçar o Document aqui
+        .lean<IProductLean[]>()
         .exec(),
       this.model.countDocuments(filter),
     ]);
 
-    return { data: data as any[], total };
+    return { data, total };
   }
 
-  async findById(id: string): Promise<any | null> {
-    if (!Types.ObjectId.isValid(id)) return null;
-    return this.model.findById(id).lean().exec();
+  /**
+   * 🔻 Baixa de estoque com verificação atômica
+   */
+  async decreaseStock(
+    productId: string,
+    quantity: number,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    if (!Types.ObjectId.isValid(productId)) return false;
+
+    const result = await this.model.updateOne(
+      {
+        _id: new Types.ObjectId(productId),
+        active: true,
+        stock: { $gte: quantity },
+      },
+      { $inc: { stock: -quantity } },
+      { session },
+    );
+
+    return result.modifiedCount === 1;
   }
 
-  async create(data: Partial<IProductDocument>): Promise<any> {
-    const [product] = await this.model.create([data]);
-    return product.toObject(); // toObject() limpa as funções do Mongoose para o retorno
+  /**
+   * 🔺 Reposição de estoque (rollback / cancelamento)
+   */
+  async increaseStock(
+    productId: string,
+    quantity: number,
+    session?: ClientSession,
+  ): Promise<void> {
+    if (!Types.ObjectId.isValid(productId)) return;
+
+    await this.model.updateOne(
+      { _id: new Types.ObjectId(productId) },
+      { $inc: { stock: quantity } },
+      { session },
+    );
+  }
+
+  /**
+   * Método usado pelo CheckoutService
+   */
+  async updateStock(
+    productId: string,
+    quantity: number,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    return this.decreaseStock(productId, quantity, session);
+  }
+
+  async create(
+    data: Partial<IProduct>,
+    session?: ClientSession,
+  ): Promise<IProductLean> {
+    const [created] = await this.model.create([data], { session });
+
+    const product = await this.model
+      .findById(created._id)
+      .lean<IProductLean>()
+      .session(session ?? null)
+      .exec();
+
+    if (!product) throw new Error("Erro ao buscar produto após criação");
+
+    return product;
   }
 
   async update(
     id: string,
-    data: Partial<IProductDocument>
-  ): Promise<any | null> {
+    data: Partial<IProduct>,
+  ): Promise<IProductLean | null> {
     if (!Types.ObjectId.isValid(id)) return null;
+
     return this.model
       .findByIdAndUpdate(id, { $set: data }, { new: true })
-      .lean()
+      .lean<IProductLean>()
       .exec();
   }
 
   async delete(id: string): Promise<boolean> {
     if (!Types.ObjectId.isValid(id)) return false;
+
     const result = await this.model.deleteOne({ _id: id }).exec();
-    return result.deletedCount > 0;
+    return result.deletedCount === 1;
   }
 
-  async seed(products: any[]) {
-    await this.model.deleteMany({});
-    const result = await this.model.insertMany(products);
-    return { imported: result.length };
+  /**
+   * 🌱 Seed inicial de produtos
+   * Usado apenas para setup inicial ou ambientes de teste
+   */
+  async seed(
+    products: Partial<IProduct>[],
+    session?: ClientSession,
+  ): Promise<{ imported: number }> {
+    if (!products.length) return { imported: 0 };
+
+    const created = await this.model.insertMany(products, { session });
+    return { imported: created.length };
   }
 }

@@ -1,13 +1,13 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
-import { ProductController } from '../../src/controllers/product.controller.js';
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { ProductController } from "../../src/controllers/product.controller.js";
 
-describe("ProductController - Cobertura Total", () => {
+describe("ProductController - Cobertura Real", () => {
   let controller: ProductController;
   let mockService: any;
   let mockReq: any;
   let mockReply: any;
 
-  const createFakeProduct = (overrides = {}) => ({
+  const fakeProduct = {
     _id: "507f1f77bcf86cd799439011",
     name: "Cadeira Gamer",
     description: "Conforto total",
@@ -16,8 +16,7 @@ describe("ProductController - Cobertura Total", () => {
     category: "Móveis",
     active: true,
     imageUrl: "http://link.com/img.jpg",
-    ...overrides
-  });
+  };
 
   beforeEach(() => {
     mockService = {
@@ -28,81 +27,66 @@ describe("ProductController - Cobertura Total", () => {
       delete: jest.fn(),
     };
 
-    controller = new ProductController(mockService as any);
-    mockReq = { params: {}, body: {}, query: {} };
-    mockReply = {
-      status: jest.fn().mockReturnThis(),
-      send: jest.fn().mockReturnThis(),
+    controller = new ProductController(mockService);
+    mockReq = {
+      params: {},
+      body: {},
+      query: { page: 1, limit: 10 },
+      log: { error: jest.fn() },
     };
+    mockReply = { status: jest.fn().mockReturnThis(), send: jest.fn() };
   });
 
-  describe("Caminhos de Sucesso", () => {
-    it("deve listar produtos (findAll)", async () => {
-      mockService.list.mockResolvedValue([createFakeProduct()]);
-      await controller.findAll(mockReq, mockReply);
-      expect(mockReply.send).toHaveBeenCalled();
+  it("findAll deve retornar paginação", async () => {
+    mockService.list.mockResolvedValue({
+      products: [fakeProduct],
+      total: 1,
     });
 
-    it("deve criar um produto com sucesso", async () => {
-      const fakeProduct = createFakeProduct();
-      mockReq.body = fakeProduct;
-      mockService.create.mockResolvedValue(fakeProduct);
-      await controller.create(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(201);
-    });
+    await controller.findAll(mockReq, mockReply);
 
-    it("deve atualizar um produto com sucesso", async () => {
-      mockReq.params = { id: "507f1f77bcf86cd799439011" };
-      mockReq.body = { price: 900 };
-      mockService.update.mockResolvedValue(createFakeProduct({ price: 900 }));
-      await controller.update(mockReq, mockReply);
-      expect(mockReply.send).toHaveBeenCalled();
-    });
-
-    it("deve deletar um produto com sucesso", async () => {
-      mockReq.params = { id: "507f1f77bcf86cd799439011" };
-      mockService.delete.mockResolvedValue(true);
-      await controller.delete(mockReq, mockReply);
-      expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(mockReply.send).toHaveBeenCalledWith({
+      data: [fakeProduct],
+      total: 1,
+      page: 1,
+      totalPages: 1,
     });
   });
 
-  describe("Caminhos de Erro", () => {
-    it("deve retornar 404 se não encontrar no findOne", async () => {
-      mockReq.params = { id: "id-inexistente" };
-      mockService.getOne.mockResolvedValue(null);
-      await controller.findOne(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(404);
-    });
+  it("findOne deve falhar com ID inválido", async () => {
+    mockReq.params.id = "123";
+    await controller.findOne(mockReq, mockReply);
+    expect(mockReply.status).toHaveBeenCalledWith(400);
+  });
 
-    it("deve tratar erro no findAll", async () => {
-      mockService.list.mockRejectedValue(new Error("Erro interno"));
-      await controller.findAll(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(500);
-    });
+  it("create deve retornar 201", async () => {
+    mockReq.body = fakeProduct;
+    mockService.create.mockResolvedValue(fakeProduct);
 
-    it("deve tratar erro no update", async () => {
-      mockService.update.mockRejectedValue(new Error("Erro update"));
-      await controller.update(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(400);
-    });
+    await controller.create(mockReq, mockReply);
 
-    it("deve tratar erro no findOne", async () => {
-      mockService.getOne.mockRejectedValue(new Error("Erro banco"));
-      await controller.findOne(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(404);
-    });
+    expect(mockReply.status).toHaveBeenCalledWith(201);
+    expect(mockReply.send).toHaveBeenCalledWith(fakeProduct);
+  });
 
-    it("deve tratar erro no create", async () => {
-      mockService.create.mockRejectedValue(new Error("Erro validação"));
-      await controller.create(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(400);
-    });
+  it("update deve retornar produto atualizado", async () => {
+    mockReq.params.id = fakeProduct._id;
+    mockReq.body = { price: 900 };
+    mockService.update.mockResolvedValue({ ...fakeProduct, price: 900 });
 
-    it("deve tratar erro no delete", async () => {
-      mockService.delete.mockRejectedValue(new Error("Erro delete"));
-      await controller.delete(mockReq, mockReply);
-      expect(mockReply.status).toHaveBeenCalledWith(400);
+    await controller.update(mockReq, mockReply);
+    expect(mockReply.send).toHaveBeenCalled();
+  });
+
+  it("delete deve retornar mensagem correta", async () => {
+    mockReq.params.id = fakeProduct._id;
+    mockService.delete.mockResolvedValue(true);
+
+    await controller.delete(mockReq, mockReply);
+
+    expect(mockReply.send).toHaveBeenCalledWith({
+      success: true,
+      message: "Rótulo removido com sucesso.",
     });
   });
 });

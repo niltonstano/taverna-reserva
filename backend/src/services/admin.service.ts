@@ -1,9 +1,11 @@
-import { AdminRepository } from "../repositories/admin.repository.js";
 import { IAdmin } from "../models/admin.js";
-import logger from "../plugins/logger.js";
+import { AdminRepository } from "../repositories/admin.repository.js";
 
 export class AdminServiceError extends Error {
-  constructor(public message: string, public statusCode: number = 400) {
+  constructor(
+    public message: string,
+    public statusCode: number = 400,
+  ) {
     super(message);
     this.name = "AdminServiceError";
   }
@@ -14,7 +16,8 @@ export class AdminService {
 
   async getAdminProfile(id: string): Promise<IAdmin> {
     const admin = await this.adminRepository.findById(id);
-    if (!admin) throw new AdminServiceError("Administrador não encontrado.", 404);
+    if (!admin)
+      throw new AdminServiceError("Administrador não encontrado.", 404);
     return admin;
   }
 
@@ -23,7 +26,10 @@ export class AdminService {
   }
 
   async updateOrder(orderId: string, status: string) {
-    const updated = await this.adminRepository.updateOrderStatus(orderId, status);
+    const updated = await this.adminRepository.updateOrderStatus(
+      orderId,
+      status,
+    );
     if (!updated) throw new AdminServiceError("Pedido não encontrado.");
     return updated;
   }

@@ -1,15 +1,39 @@
-import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
+import { afterAll, beforeAll, describe, expect, it } from "@jest/globals";
+import mongoose from "mongoose";
 import { buildApp } from "../../src/app.js";
-import { setupMongoMemory, teardownMongoMemory } from "../helpers/mongo-memory.js";
+import {
+  setupMongoMemory,
+  teardownMongoMemory,
+} from "../helpers/mongo-memory.js";
 
 describe("E2E - Fluxo de Permissões (User vs Admin)", () => {
   let app: any;
+  let adminToken: string;
+  const adminId = new mongoose.Types.ObjectId();
 
   beforeAll(async () => {
     await setupMongoMemory();
-    // 🛡️ O segredo do 100%: await no build e await no ready
     app = await buildApp();
-    await app.ready(); 
+    await app.ready();
+
+    // Limpeza radical e inserção direta
+    if (mongoose.connection.db) {
+      await mongoose.connection.db.collection("admins").deleteMany({});
+      await mongoose.connection.db.collection("admins").insertOne({
+        _id: adminId,
+        name: "Super Admin",
+        email: "admin@e2e.com",
+        password: "hashed_password_here", // Não importa a senha, usaremos token direto
+        role: "admin",
+      });
+    }
+
+    // Geramos o token manualmente usando a chave secreta do app
+    // Isso evita falhas de login/registro completamente
+    adminToken = app.jwt.sign({
+      id: adminId.toString(),
+      role: "admin",
+    });
   });
 
   afterAll(async () => {
@@ -17,29 +41,30 @@ describe("E2E - Fluxo de Permissões (User vs Admin)", () => {
     await teardownMongoMemory();
   });
 
-  it("deve bloquear um usuário comum (customer) de acessar rotas de Admin", async () => {
-    const customerToken = app.jwt.sign({ id: "user_1", role: "customer" });
+  it("deve bloquear CUSTOMER de acessar rota de ADMIN", async () => {
+    const customerToken = app.jwt.sign({
+      id: new mongoose.Types.ObjectId().toString(),
+      role: "customer",
+    });
 
     const response = await app.inject({
-      method: "DELETE",
-      url: "/api/v1/admin/users/algum-id", // URL corrigida para o novo padrão
-      headers: { authorization: `Bearer ${customerToken}` }
+      method: "GET",
+      url: "/api/v1/admin/profile",
+      headers: { authorization: `Bearer ${customerToken}` },
     });
 
     expect(response.statusCode).toBe(403);
   });
 
-  it("deve permitir que um Admin acesse rotas administrativas", async () => {
-    const adminToken = app.jwt.sign({ id: "admin_1", role: "admin" });
-
+  it("deve permitir ADMIN acessar rota administrativa", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/v1/admin/users", 
-      headers: { authorization: `Bearer ${adminToken}` }
+      url: "/api/v1/admin/profile",
+      headers: { authorization: `Bearer ${adminToken}` },
     });
 
-    // Se a rota existir, retorna 200. Se o banco estiver vazio mas a rota ok, 200/404.
-    // O importante é NÃO ser 403 (Forbidden) ou 401 (Unauthorized).
-    expect([200, 404]).toContain(response.statusCode);
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.success).toBe(true);
   });
 });

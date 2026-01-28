@@ -1,10 +1,10 @@
-import { jest } from '@jest/globals';
-import { FastifyReply, FastifyRequest } from 'fastify';
-import { OrderController } from '../../src/controllers/order.controller.js';
-import { OrderService } from '../../src/services/order.service.js';
-import { CheckoutService } from '../../src/services/checkout.service.js';
+import { jest } from "@jest/globals";
+import { FastifyReply, FastifyRequest } from "fastify";
+import { OrderController } from "../../src/controllers/order.controller.js";
+import { CheckoutService } from "../../src/services/checkout.service.js";
+import { OrderService } from "../../src/services/order.service.js";
 
-describe('OrderController', () => {
+describe("OrderController", () => {
   let controller: OrderController;
   let mockOrderService: jest.Mocked<OrderService>;
   let mockCheckoutService: jest.Mocked<CheckoutService>;
@@ -30,36 +30,51 @@ describe('OrderController', () => {
       send: jest.fn().mockReturnThis(),
     } as any;
 
-    // ✅ CORREÇÃO: Adicionado 'email' para bater com a interface JWTPayload
     mockRequest = {
-      user: { 
-        id: 'user123', 
-        email: 'test@example.com', // Campo obrigatório adicionado
-        role: 'customer' 
+      user: {
+        id: "user123",
+        email: "test@example.com",
+        role: "customer",
       },
-      headers: { 'idempotency-key': 'test-key' },
+      headers: { "idempotency-key": "test-key" },
       params: {},
-      body: {}
+      body: {},
     };
   });
 
-  test('checkout - deve realizar checkout com sucesso', async () => {
-    mockCheckoutService.execute.mockResolvedValue({ id: 'order1' } as any);
-    
+  test("checkout - deve realizar checkout com sucesso", async () => {
+    mockCheckoutService.execute.mockResolvedValue({ id: "order1" } as any);
+
     await controller.checkout(mockRequest as FastifyRequest, mockReply);
-    
+
     expect(mockReply.status).toHaveBeenCalledWith(201);
-    expect(mockCheckoutService.execute).toHaveBeenCalledWith('user123', expect.any(String));
+
+    // ✅ AGORA COM 3 PARÂMETROS
+    expect(mockCheckoutService.execute).toHaveBeenCalledWith(
+      "user123",
+      "test-key",
+      "test@example.com",
+    );
   });
 
-  test('updateStatus - deve atualizar status via admin', async () => {
-    mockRequest.params = { id: 'order1' };
-    mockRequest.body = { status: 'pago' };
-    mockOrderService.updateOrderStatus.mockResolvedValue({ id: 'order1', status: 'pago' } as any);
-    
+  test("updateStatus - deve atualizar status via admin", async () => {
+    mockRequest.params = { id: "order1" };
+    mockRequest.body = { status: "pago" };
+
+    mockOrderService.updateOrderStatus.mockResolvedValue({
+      id: "order1",
+      status: "pago",
+    } as any);
+
     await controller.updateStatus(mockRequest as FastifyRequest, mockReply);
-    
-    expect(mockOrderService.updateOrderStatus).toHaveBeenCalledWith('order1', 'pago');
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+
+    expect(mockOrderService.updateOrderStatus).toHaveBeenCalledWith(
+      "order1",
+      "pago",
+    );
+
+    expect(mockReply.send).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true }),
+    );
   });
 });

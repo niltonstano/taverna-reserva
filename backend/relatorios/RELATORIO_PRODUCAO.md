@@ -6,7 +6,7 @@ Função: Gerenciar as requisições HTTP e as respostas.
 
 Responsabilidade: Validar os dados de entrada (via Zod), chamar o serviço correto e retornar o status code adequado (200, 201, 400, etc.).
 
-Diferencial: Eles são "burros" por design. Não possuem lógica de negócio, apenas orquestram o fluxo.
+Diferencial:Não são eficientes por design. Não possuem lógica de negócio, apenas orquestram o fluxo.
 
 B. Services (O Coração da Taverna)
 Função: Onde reside toda a Lógica de Negócio.
@@ -77,7 +77,7 @@ O backend foi construído seguindo o **Layered Pattern** (Arquitetura em Camadas
 
 | Camada             | Tecnologia                                      |
 | :----------------- | :---------------------------------------------- |
-| **Backend**        | Fastify (Node.js 22), TypeScript, Zod, Mongoose |
+| **Backend**        | Fastify (Node.js 24), TypeScript, Zod, Mongoose |
 | **Frontend**       | React, Vite, Tailwind CSS                       |
 | **Infraestrutura** | Docker, Docker Compose, Nginx                   |
 | **Banco de Dados** | MongoDB                                         |
@@ -91,3 +91,4 @@ Certifique-se de ter o Docker instalado em sua máquina.
    ```bash
    git clone [https://github.com/niltonstano/taverna-reserva.git](https://github.com/niltonstano/taverna-reserva.git)
    ```
+   http://localhost:8080

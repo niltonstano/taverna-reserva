@@ -1,7 +1,7 @@
 version: "3.8"
 
 services:
-  # --- BANCO DE DADOS (Persistência com Auto-Cura) ---
+  # --- BANCO DE DADOS ---
   mongodb:
     image: mongo:latest
     container_name: taverna_db
@@ -23,7 +23,9 @@ services:
 
   # --- BACKEND (API Fastify) ---
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     container_name: taverna_api
     restart: unless-stopped
     ports:
@@ -32,8 +34,9 @@ services:
       - .env
     environment:
       - NODE_ENV=development
-      - HOST=0.0.0.0 # <--- Força o Fastify a ouvir conexões externas
+      - HOST=0.0.0.0
       - PORT=3333
+      # Note que usamos 'mongodb' (o nome do serviço acima) para a conexão interna
       - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna?authSource=admin
       - JWT_SECRET=${JWT_SECRET}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
@@ -44,9 +47,10 @@ services:
     networks:
       - taverna-network
 
-  # --- FRONTEND (Interface React + Nginx) ---
+  # --- FRONTEND (React) ---
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
     container_name: taverna_web
     restart: unless-stopped
     ports:
@@ -58,7 +62,7 @@ services:
     networks:
       - taverna-network
 
-# --- INFRAESTRUTURA DE REDE E VOLUMES ---
+# --- REDE E VOLUMES ---
 networks:
   taverna-network:
     driver: bridge

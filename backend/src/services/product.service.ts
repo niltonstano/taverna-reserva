@@ -1,8 +1,8 @@
-import { IProductDocument } from "../models/product.model.js";
+import { IProductLean } from "../interfaces/product.interface.js";
 import { ProductRepository } from "../repositories/product.repository.js";
 
 interface PaginatedProducts {
-  products: IProductDocument[];
+  products: IProductLean[];
   total: number;
 }
 
@@ -12,44 +12,53 @@ export class ProductService {
   async list(
     page: number,
     limit: number,
-    searchTerm?: string
+    searchTerm?: string,
   ): Promise<PaginatedProducts> {
     const { data, total } = await this.productRepository.findPaginated(
       page,
       limit,
-      searchTerm
+      searchTerm,
     );
+
     return { products: data, total };
   }
 
-  async findById(id: string): Promise<IProductDocument | null> {
+  async findById(id: string): Promise<IProductLean> {
     const product = await this.productRepository.findById(id);
     if (!product) throw new Error("Produto não encontrado.");
     return product;
   }
 
-  async create(data: Partial<IProductDocument>): Promise<IProductDocument> {
+  async create(data: Partial<IProductLean>): Promise<IProductLean> {
     return await this.productRepository.create(data);
   }
 
-  async update(
-    id: string,
-    data: Partial<IProductDocument>
-  ): Promise<IProductDocument | null> {
-    const product = await this.productRepository.findById(id);
-    if (!product) throw new Error("Produto não encontrado para atualização.");
-    return await this.productRepository.update(id, data);
+  async update(id: string, data: Partial<IProductLean>): Promise<IProductLean> {
+    const existing = await this.productRepository.findById(id);
+    if (!existing) throw new Error("Produto não encontrado para atualização.");
+
+    const updated = await this.productRepository.update(id, data);
+    if (!updated) throw new Error("Erro ao atualizar produto.");
+
+    return updated;
   }
 
   async delete(id: string): Promise<boolean> {
     const product = await this.productRepository.findById(id);
-    if (!product) throw new Error("Produto não encontrado para exclusão.");
+
+    if (!product) {
+      throw new Error("Produto não encontrado para exclusão.");
+    }
+
+    if (product.stock > 0) {
+      throw new Error("Não é possível deletar produto com estoque ativo.");
+    }
+
     return await this.productRepository.delete(id);
   }
 
   async seed(): Promise<{ imported: number }> {
-    // Definimos explicitamente como Partial<IProductDocument> para o TS validar
-    const initialProducts: Partial<IProductDocument>[] = [
+    const initialProducts: Partial<IProductLean>[] = [
       {
         name: "Melini Chianti Riserva",
         safra: "2021",

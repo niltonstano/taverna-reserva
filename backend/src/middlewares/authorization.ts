@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
+import logger from "../plugins/logger.js"; // Ajustado o path relativo comum
 
 export enum UserRole {
   ADMIN = "admin",
@@ -6,16 +7,23 @@ export enum UserRole {
 }
 
 /**
- * 1. Autenticação JWT (Verifica se o usuário está logado)
+ * 1. Autenticação JWT
+ * Verifica se o token é válido e injeta os dados em request.user
  */
 export const authenticate = async (
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> => {
   try {
     await request.jwtVerify();
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Token inválido";
+
+    logger.warn(
+      { err: message, ip: request.ip },
+      "Tentativa de acesso com token inválido",
+    );
+
     return reply.status(401).send({
       success: false,
       message: "Não autorizado: " + message,
@@ -25,44 +33,53 @@ export const authenticate = async (
 
 /**
  * 2. RBAC (Controle de Acesso Baseado em Cargos)
- */
-/**
- * 2. RBAC (Controle de Acesso Baseado em Cargos) - Versão Corrigida
+ * Verifica se o cargo (role) do usuário está na lista de permissões
  */
 export const verifyRole = (allowedRoles: string[]) => {
   return async (
     request: FastifyRequest,
-    reply: FastifyReply
+    reply: FastifyReply,
   ): Promise<void> => {
-    // Forçamos o tipo para aceitar tanto id quanto _id
     const user = request.user as
       | { id?: string; _id?: string; role?: string }
       | undefined;
 
-    console.log("--- DEBUG DE AUTORIZAÇÃO ---");
-    console.log("Usuário extraído do Token:", user);
-    console.log("Cargo exigido:", allowedRoles);
+    // Log estruturado para auditoria
+    logger.info(
+      {
+        userId: user?.id || user?._id,
+        userRole: user?.role,
+        requiredRoles: allowedRoles,
+      },
+      "Checando permissões de cargo",
+    );
 
-    // Verificação de segurança
     if (!user || !user.role || !allowedRoles.includes(user.role)) {
-      console.error("BLOQUEADO: Usuário sem cargo ou cargo insuficiente.");
+      logger.error(
+        {
+          userId: user?.id || user?._id,
+          roleFound: user?.role,
+        },
+        "BLOQUEADO: Cargo insuficiente",
+      );
+
       return reply.status(403).send({
         success: false,
         message: "Acesso negado. Cargo insuficiente.",
       });
     }
 
-    console.log("ACESSO PERMITIDO!");
+    logger.info({ userId: user.id || user._id }, "Acesso autorizado por cargo");
   };
 };
 
 /**
  * 3. Autorização de Propriedade (Ownership)
- * Garante que o usuário só altere os próprios dados ou seja ADMIN
+ * Garante que o usuário só altere seus próprios dados ou seja um ADMIN
  */
 export const authorizeOwnership = async (
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> => {
   const user = request.user as { id: string; role: string } | undefined;
   const { id } = request.params as { id: string };
@@ -73,24 +90,28 @@ export const authorizeOwnership = async (
       .send({ success: false, message: "Não autenticado." });
   }
 
-  const isOwner = user.id === id;
+  const isOwner = user.id === id || (user as any)._id === id;
   const isAdmin = user.role === UserRole.ADMIN;
 
   if (!isOwner && !isAdmin) {
+    logger.warn(
+      { userId: user.id, resourceId: id },
+      "Tentativa de acesso a recurso de outro usuário",
+    );
+
     return reply.status(403).send({
       success: false,
-      message:
-        "Acesso negado. Você não tem permissão para acessar este recurso.",
+      message: "Acesso negado. Você não tem permissão para este recurso.",
     });
   }
 };
 
 /**
- * 4. Autorização de Carrinho (Contexto de Negócio)
+ * 4. Autorização de Carrinho
  */
 export const authorizeCart = async (
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
 ): Promise<void> => {
   const user = request.user as { id: string } | undefined;
 
@@ -101,6 +122,6 @@ export const authorizeCart = async (
   }
 };
 
-// Atalhos úteis
+// --- Atalhos de Middleware ---
 export const adminOnly = verifyRole([UserRole.ADMIN]);
 export const customerOnly = verifyRole([UserRole.CUSTOMER]);

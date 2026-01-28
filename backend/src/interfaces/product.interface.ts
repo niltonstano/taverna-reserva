@@ -1,19 +1,27 @@
-import { Document, Types } from 'mongoose';
+import { Types } from "mongoose";
 
-// 1. Interface apenas com os dados (usada para o Faker e criação)
-export interface IProductData {
+/**
+ * Estrutura base de um produto no sistema
+ */
+export interface IProduct {
   name: string;
   description: string;
   price: number;
   stock: number;
   category: string;
-  image: string;
-  active: boolean;
+  image_url?: string;
+  active?: boolean;
+  emOferta?: boolean;
+  safra?: string;
+  uva?: string;
+  origem?: string;
+  pontuacao?: number;
 }
 
-// 2. Interface do Mongoose (usada no Model e Service)
-export interface IProduct extends IProductData, Document {
+/**
+ * Produto no formato "lean" (retornado do Mongo via .lean())
+ * Inclui o _id como ObjectId
+ */
+export interface IProductLean extends IProduct {
   _id: Types.ObjectId;
-  createdAt: Date;
-  updatedAt: Date;
 }
