@@ -18,6 +18,7 @@ import { errorHandler } from "./utils/error.handler.js";
  */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
+    requestTimeout: 10_000, // 10s
     trustProxy: true,
     bodyLimit: 1048576, // 1MB (Proteção contra Payload Gigante)
     genReqId: () => randomUUID(),
@@ -36,9 +37,12 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(corsPlugin);
 
   await app.register(fastifyHelmet, {
-    // CSP desativado para facilitar comunicação com o Dashboard,
+    // Desativa apenas o Content Security Policy em desenvolvimento,
     // mas os outros 11 headers de segurança do Helmet continuam ativos.
     contentSecurityPolicy: false,
+    // Se preferir ativar o CSP em dev, use a linha abaixo:
+    // contentSecurityPolicy:
+    //  process.env.NODE_ENV === "production" ? undefined : false,
   });
 
   await app.register(rateLimitPlugin); // Proteção contra Brute Force e DoS

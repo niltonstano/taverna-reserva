@@ -1,83 +1,172 @@
-RELATÓRIO DE PRODUÇÃO - BACKEND FASTIFY
-STATUS: 100% PRONTO PARA DEPLOY DATA: 29/12/2025 RESPONSÁVEL: NILTON
+🍷 Taverna Reserva — Backend E-commerce API
 
-1. O QUE FOI FEITO HOJE
-   BUILD PROFISSIONAL: O código agora é compilado de TypeScript para JavaScript puro (Pasta /dist), garantindo que o servidor rode com velocidade máxima.
+API de e-commerce desenvolvida com foco em arquitetura escalável, segurança e boas práticas de backend moderno, utilizando Fastify + MongoDB + TypeScript.
 
-FECHAMENTO SEGURO: Implementamos o "Graceful Shutdown". Se você desligar o servidor, ele termina de salvar os dados no MongoDB antes de fechar totalmente.
+O projeto simula um ambiente real de produção com autenticação, controle de acesso, validação rigorosa de dados e execução em containers Docker.
 
-SEGURANÇA BLINDADA: Instalamos o Helmet e configuramos o CORS. Isso protege sua API contra ataques de hackers e acessos não autorizados.
+🧠 Visão Geral da Arquitetura
 
-VALIDAÇÃO ZOD: As rotas agora têm um "fiscal" (Zod). Se o dado não for perfeito, o servidor bloqueia para não quebrar o banco de dados.
+A aplicação foi construída seguindo princípios de Clean Architecture e SOLID, com separação clara de responsabilidades:
 
-2. COMANDOS PRINCIPAIS
-   Para Programar: npm run dev
+Controller → Service → Repository → Database
 
-Para Gerar a Versão Final: npm run build
 
-Para Criar Dados de Teste: npm run seed
+Essa organização permite:
 
-Para Rodar em Produção: npm run start:prod
+✔ Código desacoplado
+✔ Facilidade de manutenção
+✔ Testabilidade
+✔ Evolução sem quebrar outras partes do sistema
 
-3. CHECKLIST FINAL
-   [OK] Banco de Dados conectando rápido.
+🛠️ Stack Principal
+Tecnologia	Finalidade
+Node.js 24	Runtime JavaScript
+Fastify	Framework HTTP de alta performance
+TypeScript	Tipagem estática e segurança
+MongoDB + Mongoose	Banco NoSQL e modelagem de dados
+Zod	Validação de dados de entrada
+JWT	Autenticação via token
+Bcrypt	Hash seguro de senhas
+Pino Logger	Logs estruturados e performáticos
+Docker & Docker Compose	Ambiente isolado e pronto para produção
+🔐 Camada de Segurança
 
-[OK] Pasta /dist gerada sem erros.
+A API foi projetada com múltiplas camadas de proteção:
 
-[OK] Testes de segurança aprovados.
+🔒 Helmet — Proteção de headers HTTP
 
-[OK] Servidor respondendo na porta 3333.
+🚦 Rate Limit — Mitigação contra brute force
 
-# 🚀 E-commerce API - Fastify & MongoDB
+🧪 Validação com Zod — Nenhum dado entra sem validação
 
-Este é um projeto de Backend robusto, desenvolvido com as tecnologias mais modernas do ecossistema Node.js. A API foi construída focando em **performance, segurança e escalabilidade**, seguindo padrões rigorosos de produção.
+🔑 Autenticação JWT Bearer
 
----
+🛡️ Controle de acesso por perfil (Admin / Customer)
 
-## 🛠️ Tecnologias Utilizadas
+🔐 Senhas criptografadas com Bcrypt
 
-| Tecnologia             | Função                                                                       |
-| :--------------------- | :--------------------------------------------------------------------------- |
-| **Node.js v24**        | Ambiente de execução JavaScript.                                             |
-| **Fastify**            | Framework web focado em baixo overhead e máxima velocidade.                  |
-| **TypeScript**         | Superset de JS que garante tipagem forte e evita erros em tempo de execução. |
-| **MongoDB & Mongoose** | Banco de Dados NoSQL com modelagem de dados e transações.                    |
-| **Zod**                | Validação de esquemas e contratos de dados com tipagem estática.             |
-| **Pino**               | Sistema de logs de ultra performance (Silent Production).                    |
-| **Helmet & CORS**      | Camadas de segurança contra ataques web e controle de acesso.                |
+⚙️ Validação de variáveis de ambiente no boot
 
----
+🏗️ Estrutura do Projeto
+src/
+ ├── controllers   → Camada HTTP (req/res)
+ ├── services      → Regras de negócio
+ ├── repositories  → Acesso ao banco
+ ├── models        → Schemas Mongoose
+ ├── routes        → Registro de rotas
+ ├── plugins       → Plugins do Fastify
+ ├── events        → Event Bus da aplicação
+ ├── scripts       → Seeds e utilitários
+ └── utils         → Helpers e tratamento de erros
 
-## 🏗️ Diferenciais do Projeto (Pronto para Produção)
+📌 Padrões Utilizados
 
-- **Build Otimizado:** Compilação TS para JS puro na pasta `/dist`, garantindo execução nativa rápida.
-- **Graceful Shutdown:** Encerramento seguro que libera recursos (MongoDB/Conexões) antes de finalizar o processo.
-- **Silent Logging:** Configuração de logs inteligente. Em produção, apenas avisos críticos (level 40+) são exibidos.
-- **Arquitetura Clean:** Separação clara entre Rotas, Controllers, Services e Repositories.
-- **Event Bus:** Sistema de listeners para ações desacopladas (como envio de e-mails ou atualização de estoque).
+Repository Pattern
 
-## 🏗️ Padrões de Projeto (Design Patterns)
+Service Layer
 
-| Padrão                    | Benefício                                                                  |
-| :------------------------ | :------------------------------------------------------------------------- |
-| **Repository Pattern**    | Facilita a troca de banco de dados e isola as consultas do Mongoose.       |
-| **Dependency Injection**  | Facilita testes automatizados e torna o código mais modular.               |
-| **Singleton (Event Bus)** | Garante uma única instância para o gerenciamento de eventos em toda a app. |
+Dependency Injection
 
----
+Event Bus (arquitetura desacoplada)
 
-## 🚀 Como Executar
+⚙️ Funcionalidades da API
+👤 Autenticação
 
-### 1. Instalação
+Registro de usuário
 
-```bash
+Login com geração de JWT
+
+Proteção de rotas autenticadas
+
+🛍️ Produtos
+
+CRUD de produtos (Admin)
+
+Controle de estoque
+
+Ativação/Desativação de produtos
+
+🛒 Carrinho
+
+Adicionar item ao carrinho
+
+Remover item
+
+Atualização automática de quantidades
+
+Cálculo de total de itens e preço
+
+📦 Pedidos (Checkout)
+
+Criação de pedido
+
+Baixa automática de estoque
+
+Cancelamento com rollback de estoque
+
+🧑‍💼 Área Admin
+
+Visualização de pedidos
+
+Gerenciamento de produtos
+
+🐳 Ambiente Completo com Docker
+
+A aplicação roda em containers isolados:
+
+Serviço	Descrição
+taverna_api	Backend Fastify
+taverna_db	MongoDB com volume persistente
+taverna_web	Frontend React servido via Nginx
+▶️ Subir tudo
+docker compose up -d --build
+
+
+API disponível em:
+
+http://localhost:8080/
+http://localhost:3333/api/v1
+
+🌱 Popular o Banco (Seed)
+
+O projeto possui um script que cria:
+
+Admin padrão
+
+Cliente de teste
+
+Catálogo inicial de vinhos
+
+docker exec -it taverna_api npx tsx src/scripts/seed-master.ts
+
+💻 Rodando Localmente (Modo Dev)
+# Instalar dependências
 npm install
 
-RESUMO TÉCNICO: O sistema está estável, tipado e protegido. O fluxo de dados entre o Fastify e o MongoDB segue as melhores práticas.
+# Rodar em modo desenvolvimento
+npm run dev
 
+🧪 Qualidade e Confiabilidade
 
+✔ Tipagem forte em toda a aplicação
+✔ Validação de entrada em todas as rotas
+✔ Graceful Shutdown (encerra conexões com segurança)
+✔ Uso de .lean() para otimização de leitura no MongoDB
+✔ Logs estruturados para rastreabilidade em produção
 
+📈 Diferenciais do Projeto
 
+Este projeto demonstra na prática:
 
+✔ Arquitetura profissional em camadas
+✔ Separação clara de responsabilidades
+✔ Segurança aplicada em múltiplas camadas
+✔ Backend pronto para ambiente real
+✔ Organização pensada para escala
 
-```
+👨‍💻 Autor
+
+Nilton Alexandre Stano
+Desenvolvedor Backend
+
+GitHub: https://github.com/niltonstano
