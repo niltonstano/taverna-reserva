@@ -1,9 +1,33 @@
+# Dependências
 node_modules/
+
+# Build
 dist/
+build/
+
+# Ambiente
 .env
-.env.local
-data/
-.mongo-data/
+.env.*
+!.env.example
+
+# Logs
+logs/
 *.log
-.vscode/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Sistema
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Testes
+coverage/
+
+# Docker volumes locais
+.mongo-data/
+data/
