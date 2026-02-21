@@ -27,23 +27,17 @@ import { AdminOrders } from '../pages/admin/AdminOrders';
 export function AppRoutes() {
   return (
     <Routes>
-      {/* 🏠 PÚBLICAS */}
       <Route path="/" element={<Home />} />
       <Route path="/catalog" element={<Catalog />} />
+      <Route path="/categories" element={<Categories />} />
       <Route path="/offers" element={<Offers />} />
       <Route path="/product/:id" element={<ProductDetail />} />
-      <Route path="/categories" element={<Categories />} />
       <Route path="/cart" element={<Cart />} />
-
-      {/* 🍷 CLUBE (Aberto para todos conhecerem) */}
       <Route path="/club" element={<Club />} />
-
-      {/* 🔑 AUTH */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/admin/login" element={<AdminLogin />} />
 
-      {/* 🛡️ ÁREA DO CLIENTE (PROTEGIDA) */}
       <Route
         path="/dashboard"
         element={
@@ -68,8 +62,6 @@ export function AppRoutes() {
           </ProtectedRoute>
         }
       />
-
-      {/* 🛡️ ÁREA DO ADMIN (PROTEGIDA) */}
       <Route
         path="/admin/dashboard"
         element={
@@ -87,7 +79,6 @@ export function AppRoutes() {
         }
       />
 
-      {/* 🔄 REDIRECIONAMENTOS */}
       <Route path="/admin" element={<Navigate to="/admin/login" replace />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

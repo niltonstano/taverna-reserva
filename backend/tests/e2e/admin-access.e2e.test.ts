@@ -16,20 +16,17 @@ describe("E2E - Fluxo de Permissões (User vs Admin)", () => {
     app = await buildApp();
     await app.ready();
 
-    // Limpeza radical e inserção direta
     if (mongoose.connection.db) {
       await mongoose.connection.db.collection("admins").deleteMany({});
       await mongoose.connection.db.collection("admins").insertOne({
         _id: adminId,
         name: "Super Admin",
         email: "admin@e2e.com",
-        password: "hashed_password_here", // Não importa a senha, usaremos token direto
+        password: "hashed_password_here",
         role: "admin",
       });
     }
 
-    // Geramos o token manualmente usando a chave secreta do app
-    // Isso evita falhas de login/registro completamente
     adminToken = app.jwt.sign({
       id: adminId.toString(),
       role: "admin",
@@ -42,6 +39,9 @@ describe("E2E - Fluxo de Permissões (User vs Admin)", () => {
   });
 
   it("deve bloquear CUSTOMER de acessar rota de ADMIN", async () => {
+    // 💡 Opcional: Silenciar o logger apenas para este teste se você quiser o console 100% limpo
+    // const logSpy = jest.spyOn(app.log, 'error').mockImplementation(() => {});
+
     const customerToken = app.jwt.sign({
       id: new mongoose.Types.ObjectId().toString(),
       role: "customer",
@@ -54,6 +54,8 @@ describe("E2E - Fluxo de Permissões (User vs Admin)", () => {
     });
 
     expect(response.statusCode).toBe(403);
+
+    // logSpy.mockRestore();
   });
 
   it("deve permitir ADMIN acessar rota administrativa", async () => {

@@ -8,29 +8,31 @@ export async function authRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const controller = new AuthController();
 
-  // Ajustado para refletir o que o Controller REALMENTE envia
-  const loginResponse = {
+  /**
+   * ✅ Schema de Resposta de Usuário
+   * Nota: No Controller usamos 'id', então aqui deve ser 'id'.
+   * Adicionamos campos de data para bater com o PublicUserDTO.
+   */
+  const userResponseSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    email: z.string().email(),
+    role: z.enum(["admin", "customer"]),
+    createdAt: z.union([z.date(), z.string()]),
+    updatedAt: z.union([z.date(), z.string()]),
+  });
+
+  const authSuccessResponse = {
     200: z.object({
-      success: z.boolean(),
       token: z.string(),
-      user: z.object({
-        _id: z.any(),
-        name: z.string(),
-        email: z.string(),
-        role: z.string(),
-      }),
+      user: userResponseSchema,
     }),
   };
 
-  const registerResponse = {
+  const registerSuccessResponse = {
     201: z.object({
       success: z.boolean(),
-      user: z.object({
-        _id: z.any(),
-        name: z.string(),
-        email: z.string(),
-        role: z.string(),
-      }),
+      user: userResponseSchema,
     }),
   };
 
@@ -40,26 +42,29 @@ export async function authRoutes(app: FastifyInstance) {
     {
       schema: {
         tags: ["Auth"],
+        summary: "Registro de novo cliente",
         body: registerSchema,
-        response: registerResponse,
+        response: registerSuccessResponse,
       },
     },
-    controller.customerRegister
+    controller.customerRegister,
   );
 
   typedApp.post(
     "/customer/login",
     {
-      schema: { tags: ["Auth"], body: loginSchema, response: loginResponse },
-      // ✅ Proteção contra força bruta: Máximo 5 tentativas por minuto
+      schema: {
+        tags: ["Auth"],
+        summary: "Login de cliente",
+        body: loginSchema,
+        response: authSuccessResponse,
+      },
+      // ✅ Rate Limit para evitar Brute Force
       config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: "1 minute",
-        },
+        rateLimit: { max: 5, timeWindow: "1 minute" },
       },
     },
-    controller.customerLogin
+    controller.customerLogin,
   );
 
   // --- Rotas de Admin ---
@@ -68,25 +73,27 @@ export async function authRoutes(app: FastifyInstance) {
     {
       schema: {
         tags: ["Auth"],
+        summary: "Registro de novo administrador",
         body: registerSchema,
-        response: registerResponse,
+        response: registerSuccessResponse,
       },
     },
-    controller.adminRegister
+    controller.adminRegister,
   );
 
   typedApp.post(
     "/admin/login",
     {
-      schema: { tags: ["Auth"], body: loginSchema, response: loginResponse },
-      // ✅ Proteção rígida para o Painel Administrativo
+      schema: {
+        tags: ["Auth"],
+        summary: "Login administrativo",
+        body: loginSchema,
+        response: authSuccessResponse,
+      },
       config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: "1 minute",
-        },
+        rateLimit: { max: 5, timeWindow: "1 minute" },
       },
     },
-    controller.adminLogin
+    controller.adminLogin,
   );
 }

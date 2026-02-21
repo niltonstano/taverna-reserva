@@ -1,82 +1,200 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { api } from '../services/api';
+import type { Address, CartItem, ShippingOption } from '../types/cart';
 
-// 1. Interface flexível: Aceita ID como string ou number e campos duplos
-export interface CartItem {
-  id: number | string; // Flexível
-  _id?: string | number;
-  nome?: string;
-  name?: string;
-  preco?: string | number;
-  price?: string | number;
-  origem?: string;
-  uva?: string;
-  imagem?: string;
-  quantity: number;
-}
-
-interface CartContextData {
+// --- INTERFACES ---
+interface CartState {
   cart: CartItem[];
   cartCount: number;
-  addToCart: (product: any) => void;
-  removeFromCart: (id: number | string) => void; // Aceita string
-  updateQuantity: (id: number | string, delta: number) => void; // Aceita string
-  clearCart: () => void;
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
+  isLogged: () => boolean;
+  // Estados de Frete
+  address: Address | null;
+  shippingOptions: ShippingOption[];
+  selectedShipping: ShippingOption | null;
+  isCalculating: boolean;
 }
 
-const CartContext = createContext<CartContextData | undefined>(undefined);
+interface CartActions {
+  addToCart: (product: any) => Promise<void>;
+  removeFromCart: (id: string) => Promise<void>;
+  updateQuantity: (id: string, delta: number) => Promise<void>;
+  clearCart: () => Promise<void>;
+  // Ações de Frete
+  calculateShipping: (zipCode: string) => Promise<void>;
+  setSelectedShipping: (option: ShippingOption) => void;
+}
+
+const CartStateContext = createContext<CartState | undefined>(undefined);
+const CartActionsContext = createContext<CartActions | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [cart, setCart] = useState<CartItem[]>(() => {
-    const savedCart = localStorage.getItem('@TavernaReserva:cart');
+    if (typeof window === 'undefined') return [];
+    const saved = localStorage.getItem('@TavernaReserva:cart');
     try {
-      return savedCart ? JSON.parse(savedCart) : [];
+      return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
     }
   });
 
+  // Novos estados para Frete
+  const [address, setAddress] = useState<Address | null>(null);
+  const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
+  const [selectedShipping, setSelectedShipping] = useState<ShippingOption | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
+
+  const isLogged = useCallback(() => !!localStorage.getItem('@Taverna:token'), []);
+
   useEffect(() => {
     localStorage.setItem('@TavernaReserva:cart', JSON.stringify(cart));
   }, [cart]);
 
-  const cartCount = cart.reduce((acc, item) => acc + (item.quantity || 0), 0);
+  const cartCount = useMemo(() => cart.reduce((acc, i) => acc + (i.quantity || 0), 0), [cart]);
 
-  const addToCart = (product: any) => {
-    setCart((prev) => {
-      // Pega o ID independente de como ele venha
-      const productId = product.id || product._id;
+  // --- LÓGICA DE FRETE (MELHOR ENVIO) ---
+  const calculateShipping = useCallback(
+    async (zipCode: string) => {
+      if (zipCode.length < 8) return;
+      setIsCalculating(true);
 
-      const exists = prev.find((item) => (item.id || item._id) === productId);
+      try {
+        // Chama sua API que processa com o token do Melhor Envio
+        const response = await api.post('/shipping/calculate', {
+          zipCode,
+          items: cart.map((item) => ({
+            id: item._id || item.id,
+            quantity: item.quantity,
+          })),
+        });
 
-      if (exists) {
-        return prev.map((item) => ((item.id || item._id) === productId ? { ...item, quantity: (item.quantity || 0) + 1 } : item));
+        // Supondo que sua API retorne as opções e os dados do endereço
+        setShippingOptions(response.data.options || []);
+        setAddress(response.data.address || null);
+      } catch (err) {
+        console.error('Erro ao calcular frete:', err);
+      } finally {
+        setIsCalculating(false);
       }
+    },
+    [cart],
+  );
 
-      // Garante que o item novo tenha ao menos a chave 'id' e 'quantity'
-      return [...prev, { ...product, id: productId, quantity: 1 }];
-    });
-  };
+  // --- AÇÕES DO CARRINHO ---
+  const addToCart = useCallback(
+    async (product: any) => {
+      const id = String(product._id || product.id);
+      setCart((prev) => {
+        const existing = prev.find((item) => String(item._id || item.id) === id);
+        if (existing) {
+          return prev.map((item) => (String(item._id || item.id) === id ? { ...item, quantity: item.quantity + 1 } : item));
+        }
+        return [...prev, { ...product, quantity: 1 }];
+      });
 
-  const removeFromCart = (id: number | string) => {
-    setCart((prev) => prev.filter((item) => (item.id || item._id) !== id));
-  };
+      if (isLogged()) {
+        try {
+          await api.post('/cart/items', { productId: id, quantity: 1 });
+        } catch (err) {
+          console.warn('Falha ao sincronizar adição');
+        }
+      }
+    },
+    [isLogged],
+  );
 
-  const updateQuantity = (id: number | string, delta: number) => {
-    setCart((prev) => prev.map((item) => ((item.id || item._id) === id ? { ...item, quantity: Math.max(1, (item.quantity || 0) + delta) } : item)));
-  };
+  const removeFromCart = useCallback(
+    async (id: string) => {
+      setCart((prev) => prev.filter((item) => String(item._id || item.id) !== id));
+      if (isLogged()) {
+        try {
+          await api.delete(`/cart/items/${id}`);
+        } catch (err) {
+          console.warn('Falha ao remover');
+        }
+      }
+    },
+    [isLogged],
+  );
 
-  const clearCart = () => {
+  const updateQuantity = useCallback(
+    async (id: string, delta: number) => {
+      let newQty = 0;
+      setCart((prev) =>
+        prev.map((item) => {
+          if (String(item._id || item.id) === id) {
+            newQty = Math.max(1, item.quantity + delta);
+            return { ...item, quantity: newQty };
+          }
+          return item;
+        }),
+      );
+
+      if (isLogged() && newQty > 0) {
+        try {
+          await api.patch(`/cart/items/${id}`, { quantity: newQty });
+        } catch (err) {
+          console.warn('Falha ao atualizar quantidade');
+        }
+      }
+    },
+    [isLogged],
+  );
+
+  const clearCart = useCallback(async () => {
     setCart([]);
-    localStorage.removeItem('@TavernaReserva:cart');
-  };
+    if (isLogged()) {
+      try {
+        await api.delete('/cart/clear');
+      } catch (err) {
+        console.warn('Falha ao limpar servidor');
+      }
+    }
+  }, [isLogged]);
 
-  return <CartContext.Provider value={{ cart, cartCount, addToCart, removeFromCart, updateQuantity, clearCart }}>{children}</CartContext.Provider>;
+  // --- MEMOS ---
+  const stateValue = useMemo(
+    () => ({
+      cart,
+      cartCount,
+      setCart,
+      isLogged,
+      address,
+      shippingOptions,
+      selectedShipping,
+      isCalculating,
+    }),
+    [cart, cartCount, isLogged, address, shippingOptions, selectedShipping, isCalculating],
+  );
+
+  const actionsValue = useMemo(
+    () => ({
+      addToCart,
+      removeFromCart,
+      updateQuantity,
+      clearCart,
+      calculateShipping,
+      setSelectedShipping,
+    }),
+    [addToCart, removeFromCart, updateQuantity, clearCart, calculateShipping],
+  );
+
+  return (
+    <CartStateContext.Provider value={stateValue}>
+      <CartActionsContext.Provider value={actionsValue}>{children}</CartActionsContext.Provider>
+    </CartStateContext.Provider>
+  );
 };
 
 export const useCart = () => {
-  const context = useContext(CartContext);
-  if (!context) {
-    throw new Error('useCart deve ser usado dentro de um CartProvider');
-  }
+  const context = useContext(CartStateContext);
+  if (!context) throw new Error('useCart deve ser usado dentro de um CartProvider');
+  return context;
+};
+
+export const useCartActions = () => {
+  const context = useContext(CartActionsContext);
+  if (!context) throw new Error('useCartActions deve ser usado dentro de um CartProvider');
   return context;
 };

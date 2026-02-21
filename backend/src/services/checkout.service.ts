@@ -1,209 +1,186 @@
 /* eslint-disable no-await-in-loop */
 import { ClientSession, Connection, Types } from "mongoose";
-import { eventBus, EventNames } from "../events/event-bus.js";
-import logger from "../plugins/logger.js";
+import { IPaymentProvider } from "../interfaces/payment.interface.js";
 import { CartRepository } from "../repositories/cart.repository.js";
-import {
-  OrderCreateInput,
-  OrderItem,
-  OrderReadModel,
-  OrderRepository,
-} from "../repositories/order.repository.js";
+import { OrderRepository } from "../repositories/order.repository.js";
 import { ProductRepository } from "../repositories/product.repository.js";
+import { PopulatedCartItem } from "../types/cart.type.js";
+import { CheckoutBody, CheckoutResult } from "../types/order.type.js";
+import {
+  BadRequestError,
+  ConflictError,
+  InternalServerError,
+} from "../utils/errors.js";
 
-/**
- * ✅ INTERFACES SANITIZADAS
- */
-interface CartItemPopulated {
-  productId: {
-    _id: Types.ObjectId;
-    name: string;
-    price: number;
-    active: boolean;
-  };
-  quantity: number;
-}
+const activeLocks = new Set<string>();
 
-interface PaymentData {
-  qr_code: string;
-  qr_code_base64: string;
-  ticket_url: string;
-  payment_id: number;
-}
-
-export interface CheckoutResult {
-  order: OrderReadModel;
-  payment_data: PaymentData;
-}
-
-interface MongoTransactionError extends Error {
-  hasErrorLabel?: (label: string) => boolean;
-}
-
-/**
- * ✅ SERVIÇO DE CHECKOUT PROFISSIONAL
- * Implementa: Idempotência, Transações ACID, Retry Logic e Sanitização de Tipos.
- */
 export class CheckoutService {
   constructor(
-    private readonly orderRepository: OrderRepository,
-    private readonly cartRepository: CartRepository,
-    private readonly productRepository: ProductRepository,
-    private readonly connection: Connection
+    private readonly orderRepo: OrderRepository,
+    private readonly cartRepo: CartRepository,
+    private readonly productRepo: ProductRepository,
+    private readonly paymentProvider: IPaymentProvider,
+    private readonly connection: Connection,
   ) {}
 
   public async execute(
     userId: string,
-    idempotencyKey: string,
-    userEmail: string
+    iKey: string,
+    email: string,
+    data: CheckoutBody,
   ): Promise<CheckoutResult> {
-    const cleanUserId = this.validateAndConvertId(userId);
+    this.validateSystemState(iKey);
+    activeLocks.add(iKey);
 
-    // 1️⃣ SEGURANÇA: Camada de Idempotência (Evita duplicidade no banco e cobrança)
-    const existingOrder = await this.orderRepository.findByIdempotencyKey(
-      cleanUserId,
-      idempotencyKey
-    );
+    const session = await this.connection.startSession();
 
-    if (existingOrder) {
-      logger.warn(
-        { userId, idempotencyKey },
-        "Idempotência acionada: Retornando pedido existente."
-      );
-      return {
-        order: existingOrder,
-        payment_data: this.generateMockPayment(existingOrder._id.toString()),
-      };
-    }
-
-    const MAX_RETRIES = 3;
-    let finalOrder: OrderReadModel | null = null;
-
-    // 2️⃣ DADOS: Transação ACID com Lógica de Retentativa
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      const session: ClientSession = await this.connection.startSession();
-      try {
-        await session.withTransaction(async () => {
-          const cartData = await this.cartRepository.findByUserId(cleanUserId);
-          const cart = cartData as unknown as {
-            items: CartItemPopulated[];
-          } | null;
-
-          if (!cart?.items?.length) throw new Error("Carrinho vazio.");
-
-          const validatedItems: OrderItem[] = [];
-          let totalAccumulated = 0;
-
-          // Validação de estoque e preços em tempo real
-          for (const item of cart.items) {
-            const pId = item.productId._id.toString();
-            const product = await this.productRepository.findById(pId);
-
-            if (!product?.active)
-              throw new Error(`Produto ${product?.name || pId} indisponível.`);
-
-            // Baixa de estoque ATÔMICA (Evita venda sem estoque por milissegundos)
-            const hasStock = await this.productRepository.updateStock(
-              pId,
-              item.quantity,
-              session
-            );
-            if (!hasStock)
-              throw new Error(`Estoque insuficiente: ${product.name}`);
-
-            const subtotal = Number((product.price * item.quantity).toFixed(2));
-            totalAccumulated += subtotal;
-
-            validatedItems.push({
-              productId: pId,
-              name: product.name,
-              quantity: item.quantity,
-              price: product.price,
-              subtotal,
-            });
-          }
-
-          const orderData: OrderCreateInput = {
-            userId: new Types.ObjectId(cleanUserId),
-            items: validatedItems,
-            totalPrice: Number(totalAccumulated.toFixed(2)),
-            status: "pending",
-            idempotencyKey,
-            customerEmail: userEmail,
-          };
-
-          const createdDoc = await this.orderRepository.create(orderData, {
-            session,
-          });
-
-          // Limpeza do carrinho vinculada ao sucesso do pedido
-          await this.cartRepository.clearCart(cleanUserId, session);
-
-          // Sanitização: Converte de Documento Mongoose para Objeto Puro (POJO)
-          finalOrder = JSON.parse(JSON.stringify(createdDoc)) as OrderReadModel;
-        });
-
-        break; // Sucesso: sai do loop de retentativas
-      } catch (err) {
-        const error = err as MongoTransactionError;
-        // Erros de concorrência (TransientTransactionError) permitem nova tentativa
-        if (
-          error.hasErrorLabel?.("TransientTransactionError") &&
-          attempt < MAX_RETRIES
-        ) {
-          logger.warn(
-            { attempt, userId },
-            "Conflito de escrita (Write Conflict). Tentando novamente..."
-          );
-          continue;
+    try {
+      return await session.withTransaction(async () => {
+        // 1. Verificação de Idempotência (Evita pedidos duplicados)
+        const existingOrder = await this.orderRepo.findByIdempotencyKey(
+          userId,
+          iKey,
+        );
+        if (existingOrder) {
+          await this.cartRepo.clearCart(userId, session);
+          return this.formatSuccessResponse(existingOrder, email);
         }
-        throw error;
-      } finally {
-        await session.endSession();
+
+        /**
+         * 🚀 ESTRATÉGIA HÍBRIDA DE CARRINHO
+         * Se o banco está vazio (Admin ou erro de sync), usamos os itens do Payload.
+         * Isso evita o erro "Seu carrinho está vazio" quando o dado está no Frontend.
+         */
+        let cartItems: PopulatedCartItem[] = [];
+        const dbCart = await this.cartRepo.findByUserId(userId);
+
+        if (dbCart?.items?.length) {
+          cartItems = dbCart.items as unknown as PopulatedCartItem[];
+        } else if (data.items && data.items.length > 0) {
+          // Normaliza os itens do payload para o formato esperado pelo prepareStockAndItems
+          cartItems = data.items.map((item) => ({
+            productId: { _id: item.productId } as any,
+            quantity: item.quantity,
+          }));
+        }
+
+        if (cartItems.length === 0) {
+          throw new BadRequestError(
+            "Seu carrinho está vazio no banco e no payload.",
+          );
+        }
+
+        // 2. Validação de Estoque e Cálculo de Preços Reais (Backend-side)
+        const { orderItems, itemsTotalCents } = await this.prepareStockAndItems(
+          cartItems,
+          session,
+        );
+
+        // 3. Validação de Integridade Financeira
+        const shippingCents = Math.round(data.shipping.price * 100);
+        const expectedTotalCents = itemsTotalCents + shippingCents;
+        const sentTotalCents = Math.round(data.total * 100);
+
+        // Tolerância de 1 centavo para arredondamentos de JS
+        if (Math.abs(expectedTotalCents - sentTotalCents) > 1) {
+          throw new BadRequestError(
+            "Divergência de valores detectada entre Frontend e Backend.",
+          );
+        }
+
+        // 4. Persistência do Pedido
+        const savedOrder = await this.orderRepo.create(
+          {
+            userId: new Types.ObjectId(userId),
+            customerEmail: email,
+            idempotencyKey: iKey,
+            items: orderItems,
+            totalPriceCents: expectedTotalCents,
+            shippingPriceCents: shippingCents,
+            status: "pending",
+            address: data.address,
+            zipCode: data.zipCode,
+            shipping: {
+              service: data.shipping.service,
+              company: data.shipping.company || "Transportadora Standard",
+              priceCents: shippingCents,
+              deadline: data.shipping.deadline,
+            },
+          },
+          session,
+        );
+
+        // 5. Limpeza de rastro
+        await this.cartRepo.clearCart(userId, session);
+
+        return this.formatSuccessResponse(savedOrder, email);
+      });
+    } finally {
+      activeLocks.delete(iKey);
+      await session.endSession();
+    }
+  }
+
+  private async prepareStockAndItems(
+    cartItems: PopulatedCartItem[],
+    session: ClientSession,
+  ) {
+    let itemsTotalCents = 0;
+    const orderItems = [];
+
+    for (const item of cartItems) {
+      const pId = item.productId?._id || (item.productId as any);
+      if (!pId)
+        throw new BadRequestError("ID do produto inválido no processamento.");
+
+      // O updateStock garante que o estoque diminua atomicamente
+      const product = await this.productRepo.updateStock(
+        pId,
+        item.quantity,
+        session,
+      );
+
+      if (!product) {
+        throw new BadRequestError(
+          `Estoque insuficiente ou produto inexistente: ${pId}`,
+        );
       }
+
+      const priceCents = Math.round(product.price * 100);
+      const subtotalCents = priceCents * item.quantity;
+      itemsTotalCents += subtotalCents;
+
+      orderItems.push({
+        productId: new Types.ObjectId(product._id),
+        name: product.name,
+        priceCents,
+        quantity: item.quantity,
+        subtotalCents,
+      });
     }
+    return { orderItems, itemsTotalCents };
+  }
 
-    // ✅ CHECK FINAL: O TypeScript agora entende que finalOrder não é 'never'
-    if (!finalOrder) {
-      throw new Error("Erro interno: Falha ao gerar objeto do pedido.");
-    }
-
-    const order: OrderReadModel = finalOrder;
-    const orderId = order._id.toString();
-
-    // 3️⃣ INTEGRAÇÃO: Gateway de Pagamento e Eventos
-    const payment = this.generateMockPayment(orderId);
-    this.emitOrderEvent(order, cleanUserId);
-
+  private formatSuccessResponse(order: any, email: string): CheckoutResult {
     return {
       order,
-      payment_data: payment,
+      payment_data: {
+        qr_code: "WHATSAPP_REDIRECT",
+        qr_code_base64: "",
+        ticket_url: this.paymentProvider.generatePaymentLink(
+          order._id?.toString() || order.id,
+          Number(order.totalPriceCents),
+          email,
+        ),
+        payment_id: Date.now(),
+      },
     };
   }
 
-  /**
-   * ✅ MÉTODOS PRIVADOS DE SUPORTE
-   */
-  private validateAndConvertId(id: string): string {
-    if (!Types.ObjectId.isValid(id))
-      throw new Error("Formato de ID de usuário inválido.");
-    return id;
-  }
-
-  private generateMockPayment(orderId: string): PaymentData {
-    return {
-      qr_code: "00020101021226870014BR.GOV.BCB.PIX0125adege-fake-key-12345",
-      qr_code_base64: "BASE64_MOCK_DATA",
-      ticket_url: `https://fake-pay.com/tickets/${orderId}`,
-      payment_id: Math.floor(Math.random() * 1000000),
-    };
-  }
-
-  private emitOrderEvent(order: OrderReadModel, userId: string): void {
-    eventBus.publish(EventNames.ORDER_CREATED, {
-      orderId: order._id.toString(),
-      userId,
-      total: order.totalPrice,
-    });
+  private validateSystemState(iKey: string): void {
+    if (activeLocks.has(iKey))
+      throw new ConflictError("Processamento duplicado em curso.");
+    if (this.connection.readyState !== 1)
+      throw new InternalServerError("Banco de dados offline ou instável.");
   }
 }

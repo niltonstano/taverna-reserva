@@ -3,15 +3,14 @@ import { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
 import { z } from "zod";
 
-// Controllers
+// Controllers, Schemas e Middlewares
 import { OrderController } from "../controllers/order.controller.js";
-
-// Middlewares de Segurança
 import {
   authenticate,
   UserRole,
   verifyRole,
 } from "../middlewares/authorization.js";
+import { createOrderSchema } from "../schemas/order.schema.js";
 
 // Repositories e Services
 import { CartRepository } from "../repositories/cart.repository.js";
@@ -20,116 +19,152 @@ import { ProductRepository } from "../repositories/product.repository.js";
 import { CheckoutService } from "../services/checkout.service.js";
 import { OrderService } from "../services/order.service.js";
 
-/** * 📝 SCHEMAS DE RESPOSTA (Ajustados para evitar ResponseSerializationError)
- */
+// --- 📝 SCHEMAS DE RESPOSTA (Contratos Atômicos) ---
 
-const OrderItemSchema = z.object({
-  // ✅ Coerce garante que ObjectIds do Mongo virem string na saída
-  productId: z.coerce.string(),
-  name: z.string(),
-  quantity: z.number(),
-  price: z.number(),
-  subtotal: z.number(),
-});
-
-const OrderSchema = z.object({
-  // ✅ Forçamos a conversão de todos os IDs e Datas
-  _id: z.coerce.string(),
-  userId: z.coerce.string(),
-  items: z.array(OrderItemSchema),
-  totalPrice: z.number(),
-  status: z.enum(["pending", "paid", "shipped", "delivered", "cancelled"]),
-  idempotencyKey: z.string().optional().nullable(),
-  createdAt: z
-    .any()
-    .transform((val) => (val instanceof Date ? val.toISOString() : val))
-    .optional(),
-});
+const OrderResponseSchema = z
+  .object({
+    _id: z.any().transform(String),
+    userId: z.any().transform(String),
+    customerEmail: z.string(),
+    items: z.array(
+      z.object({
+        productId: z.string(),
+        name: z.string(),
+        quantity: z.number(),
+        priceCents: z.number(),
+        subtotalCents: z.number(),
+      }),
+    ),
+    totalPriceCents: z.number(),
+    shippingPriceCents: z.number(),
+    status: z.enum(["pending", "paid", "shipped", "delivered", "cancelled"]),
+    address: z.string(),
+    zipCode: z.string(),
+    createdAt: z
+      .any()
+      .transform((v) => (v instanceof Date ? v.toISOString() : String(v))),
+  })
+  .passthrough();
 
 const PaymentDataSchema = z.object({
-  qr_code: z.string(),
-  qr_code_base64: z.string(),
-  ticket_url: z.string(),
-  payment_id: z.number(),
+  qr_code: z.string().optional(),
+  payment_url: z.string().optional(),
+  payment_id: z.any().optional(),
 });
+
+// --- 🛣️ DEFINIÇÃO DAS ROTAS ---
 
 export async function orderRoutes(app: FastifyInstance) {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  /** 🏗️ INJEÇÃO DE DEPENDÊNCIAS */
+  /** 🏗️ INJEÇÃO DE DEPENDÊNCIAS (Composition Root) */
   const orderRepo = new OrderRepository();
   const productRepo = new ProductRepository();
   const cartRepo = new CartRepository();
+  const connection = mongoose.connection;
 
-  const orderService = new OrderService(orderRepo, productRepo);
+  const whatsappProvider = {
+    generatePaymentLink: (
+      orderId: string,
+      totalCents: number,
+      email: string,
+    ) => {
+      const totalDisplay = (totalCents / 100).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+      const text = encodeURIComponent(
+        `🍷 *Taverna do Vinho*\n\nConfirmação de Pedido:\n🆔 *ID:* ${orderId}\n💰 *Total:* ${totalDisplay}\n📧 *Email:* ${email}`,
+      );
+      return `https://wa.me/5511999999999?text=${text}`;
+    },
+  };
+
+  const orderService = new OrderService(orderRepo, productRepo, connection);
   const checkoutService = new CheckoutService(
     orderRepo,
     cartRepo,
     productRepo,
-    mongoose.connection
+    whatsappProvider,
+    connection,
   );
-
   const orderController = new OrderController(orderService, checkoutService);
 
-  /** 🛡️ SEGURANÇA GLOBAL */
+  /** 🛡️ SEGURANÇA: Hook Global */
   typedApp.addHook("onRequest", authenticate);
 
-  // --- ROTAS DO CLIENTE (SHOPPER) ---
+  // --- 🛒 ROTAS DE CLIENTE ---
 
-  /** 🛒 CHECKOUT */
   typedApp.post(
     "/checkout",
     {
       schema: {
+        summary: "Finaliza pedido e gera link de pagamento",
         tags: ["Shop | Checkout"],
-        summary: "Processa o checkout com validação rigorosa",
-        headers: z.object({
-          "idempotency-key": z.string().uuid(),
-        }),
+        headers: z.object({ "idempotency-key": z.string().uuid() }),
+        body: createOrderSchema,
         response: {
           201: z.object({
             success: z.boolean(),
-            order: OrderSchema,
+            message: z.string(),
+            order: OrderResponseSchema,
             payment_data: PaymentDataSchema,
           }),
         },
       },
     },
-    async (req, res) => {
-      return orderController.checkout(req as any, res);
-    }
+    (req, res) => orderController.checkout(req as any, res),
   );
 
-  /** 📦 MEUS PEDIDOS */
   typedApp.get(
     "/my-orders",
     {
       schema: {
+        summary: "Lista pedidos do usuário logado",
         tags: ["Member | Dashboard"],
-        summary: "Lista histórico de pedidos",
         response: {
           200: z.object({
             success: z.boolean(),
-            data: z.array(OrderSchema),
+            data: z.array(OrderResponseSchema),
           }),
         },
       },
     },
-    async (req, res) => {
-      return orderController.listMyOrders(req as any, res);
-    }
+    (req, res) => orderController.listMyOrders(req as any, res),
   );
 
-  // --- ROTAS ADMINISTRATIVAS (ADMIN ONLY) ---
+  /**
+   * ✅ ROTA DE BUSCA POR ID (Com proteção Anti-IDOR interna no Controller)
+   */
+  typedApp.get(
+    "/:id",
+    {
+      schema: {
+        summary: "Busca detalhes de um pedido específico",
+        tags: ["Member | Dashboard"],
+        params: z.object({
+          id: z.string().length(24, "ID de Pedido inválido"),
+        }),
+        response: {
+          200: z.object({
+            success: z.boolean(),
+            data: OrderResponseSchema,
+          }),
+        },
+      },
+    },
+    (req, res) => orderController.findById(req as any, res),
+  );
 
-  /** 📋 LISTAR TODOS */
+  // --- 📋 ROTAS DE ADMIN ---
+
   typedApp.get(
     "/",
     {
       preHandler: [verifyRole([UserRole.ADMIN])],
       schema: {
+        summary: "Listagem paginada de todos os pedidos",
         tags: ["Admin | Pedidos"],
-        summary: "Lista todos os pedidos (Admin)",
         querystring: z.object({
           page: z.coerce.number().min(1).default(1),
           limit: z.coerce.number().min(1).max(100).default(10),
@@ -137,27 +172,23 @@ export async function orderRoutes(app: FastifyInstance) {
         response: {
           200: z.object({
             success: z.boolean(),
-            data: z.array(OrderSchema),
+            data: z.array(OrderResponseSchema),
+            total: z.number().optional(),
           }),
         },
       },
     },
-    async (req, res) => {
-      return orderController.findAll(req as any, res);
-    }
+    (req, res) => orderController.findAll(req as any, res),
   );
 
-  /** ⚙️ ATUALIZAR STATUS */
   typedApp.patch(
     "/:id/status",
     {
       preHandler: [verifyRole([UserRole.ADMIN])],
       schema: {
+        summary: "Atualiza o status logístico do pedido",
         tags: ["Admin | Pedidos"],
-        summary: "Atualiza o status logístico",
-        params: z.object({
-          id: z.string().length(24),
-        }),
+        params: z.object({ id: z.string().length(24) }),
         body: z.object({
           status: z.enum([
             "pending",
@@ -171,13 +202,11 @@ export async function orderRoutes(app: FastifyInstance) {
           200: z.object({
             success: z.boolean(),
             message: z.string(),
-            data: OrderSchema,
+            data: OrderResponseSchema,
           }),
         },
       },
     },
-    async (req, res) => {
-      return orderController.updateStatus(req as any, res);
-    }
+    (req, res) => orderController.updateStatus(req as any, res),
   );
 }

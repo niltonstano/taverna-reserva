@@ -1,89 +1,60 @@
-import { FastifyInstance } from "fastify";
 import mongoose from "mongoose";
 import { buildApp } from "./app.js";
 import { env } from "./config/env.js";
 import { connectMongo } from "./config/mongo.js";
+import { initEvents } from "./events/index.js";
 import logger from "./plugins/logger.js";
 
-// --- 🛡️ SEGURANÇA DE PROCESSO (ANTI-CRASH SILENCIOSO) ---
-process.on("unhandledRejection", (reason) => {
-  logger.fatal(
-    { err: reason },
-    "❌ Rejeição não tratada. Encerrando processo.",
-  );
-  process.exit(1);
-});
-
-process.on("uncaughtException", (err) => {
-  logger.fatal({ err }, "❌ EXCEÇÃO FATAL! Encerrando processo.");
-  process.exit(1);
-});
-
 /**
- * START: Inicialização oficial do Servidor
+ * 🚀 INICIALIZAÇÃO DO SISTEMA
  */
-const start = async (): Promise<void> => {
-  let app: FastifyInstance | undefined;
-
+const start = async () => {
   try {
-    // 1️⃣ Conecta ao Mongo ANTES de qualquer coisa
+    // 1. Inicializa Listeners de Eventos (E-mail, Logística, etc.)
+    initEvents();
+
+    // 2. Conecta ao Banco de Dados
     await connectMongo();
 
-    // 2️⃣ Só carrega eventos depois do banco estar online
-    await import("./events/index.js");
+    // 3. Constrói a instância do Fastify (Plugins, Rotas, ErrorHandler)
+    const server = await buildApp();
 
-    // 3️⃣ Instancia o Fastify (plugins, segurança, rotas, etc.)
-    app = await buildApp();
-
-    // 4️⃣ Configuração de rede (compatível com Docker e Cloud)
     const port = Number(env.PORT) || 3333;
     const host = "0.0.0.0";
 
-    const address = await app.listen({ port, host });
+    const address = await server.listen({ port, host });
 
     logger.info({
       msg: "🚀 TAVERNA ONLINE",
       url: address,
       mode: env.NODE_ENV,
-      database: "MongoDB connected",
       pid: process.pid,
     });
 
-    // --- 🛑 DESLIGAMENTO GRACIOSO (GRACEFUL SHUTDOWN) ---
-    const closeGracefully = async (signal: string) => {
-      logger.warn(`🛑 Sinal [${signal}] recebido. Iniciando encerramento...`);
+    // 🛑 GRACEFUL SHUTDOWN (Encerramento Seguro)
+    const signals = ["SIGINT", "SIGTERM"] as const;
 
-      const forceExit = setTimeout(() => {
-        logger.fatal("❌ Timeout no shutdown. Forçando encerramento.");
-        process.exit(1);
-      }, 10000);
+    signals.forEach((signal) => {
+      process.on(signal, async () => {
+        logger.warn(`🛑 Sinal [${signal}] recebido. Encerrando...`);
 
-      try {
-        if (app) {
-          // Para de aceitar novas conexões
-          app.server.closeIdleConnections?.();
-          await app.close();
-        }
+        await server.close();
+        await mongoose.disconnect();
 
-        if (mongoose.connection.readyState !== 0) {
-          await mongoose.disconnect();
-        }
-
-        clearTimeout(forceExit);
-        logger.info("✅ Sistema desligado com segurança.");
+        logger.info("✅ Sistema desligado com segurança. 👋");
         process.exit(0);
-      } catch (err) {
-        logger.fatal({ err }, "❌ Erro durante shutdown forçado.");
-        process.exit(1);
-      }
-    };
-
-    process.on("SIGINT", () => closeGracefully("SIGINT"));
-    process.on("SIGTERM", () => closeGracefully("SIGTERM"));
+      });
+    });
   } catch (err) {
-    logger.fatal({ err }, "❌ Falha crítica no startup do servidor");
+    logger.fatal({ err }, "❌ Falha crítica no startup");
     process.exit(1);
   }
 };
+
+// Captura erros globais que escaparem de qualquer lógica
+process.on("unhandledRejection", (err) => {
+  logger.fatal({ err }, "❌ Rejeição não tratada detectada");
+  process.exit(1);
+});
 
 start();

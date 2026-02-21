@@ -1,127 +1,116 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import logger from "../plugins/logger.js"; // Ajustado o path relativo comum
+import logger from "../plugins/logger.js";
 
+/**
+ * ✅ DEFINIÇÃO DE TIPOS PARA O JWT
+ * Garante que o TypeScript reconheça o payload em todo o projeto.
+ */
 export enum UserRole {
   ADMIN = "admin",
   CUSTOMER = "customer",
 }
 
+export interface JWTPayload {
+  id: string;
+  email: string;
+  role: UserRole;
+}
+
 /**
- * 1. Autenticação JWT
- * Verifica se o token é válido e injeta os dados em request.user
+ * 1. AUTENTICAÇÃO JWT (Authentication)
+ * Blindagem de entrada: se falhar aqui, nem encosta nos Services.
  */
 export const authenticate = async (
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> => {
   try {
+    // Injeta os dados no request.user (configurado no fastify-jwt)
     await request.jwtVerify();
+
+    // Log silencioso de auditoria em produção
+    logger.debug(
+      { userId: (request.user as JWTPayload).id },
+      "Usuário autenticado",
+    );
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Token inválido";
 
     logger.warn(
-      { err: message, ip: request.ip },
-      "Tentativa de acesso com token inválido",
+      { err: message, ip: request.ip, url: request.url },
+      "Tentativa de acesso não autorizado",
     );
 
     return reply.status(401).send({
       success: false,
-      message: "Não autorizado: " + message,
+      message: "Sessão inválida ou expirada.",
     });
   }
 };
 
 /**
- * 2. RBAC (Controle de Acesso Baseado em Cargos)
- * Verifica se o cargo (role) do usuário está na lista de permissões
+ * 2. RBAC (Role-Based Access Control)
+ * Validação de permissões por cargo.
  */
-export const verifyRole = (allowedRoles: string[]) => {
+export const verifyRole = (allowedRoles: UserRole[]) => {
   return async (
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> => {
-    const user = request.user as
-      | { id?: string; _id?: string; role?: string }
-      | undefined;
+    const user = request.user as JWTPayload | undefined;
 
-    // Log estruturado para auditoria
-    logger.info(
-      {
-        userId: user?.id || user?._id,
-        userRole: user?.role,
-        requiredRoles: allowedRoles,
-      },
-      "Checando permissões de cargo",
-    );
-
-    if (!user || !user.role || !allowedRoles.includes(user.role)) {
+    if (!user || !allowedRoles.includes(user.role)) {
       logger.error(
-        {
-          userId: user?.id || user?._id,
-          roleFound: user?.role,
-        },
-        "BLOQUEADO: Cargo insuficiente",
+        { userId: user?.id, roleFound: user?.role, required: allowedRoles },
+        "BLOQUEIO RBAC: Permissão insuficiente",
       );
 
       return reply.status(403).send({
         success: false,
-        message: "Acesso negado. Cargo insuficiente.",
+        message:
+          "Acesso negado. Você não tem permissão para realizar esta ação.",
       });
     }
-
-    logger.info({ userId: user.id || user._id }, "Acesso autorizado por cargo");
   };
 };
 
 /**
- * 3. Autorização de Propriedade (Ownership)
- * Garante que o usuário só altere seus próprios dados ou seja um ADMIN
+ * 3. AUTORIZAÇÃO DE PROPRIEDADE (Ownership)
+ * Garante que um cliente só acesse seus próprios Pedidos/Carrinho.
+ * Admins ignoram essa trava.
  */
 export const authorizeOwnership = async (
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> => {
-  const user = request.user as { id: string; role: string } | undefined;
-  const { id } = request.params as { id: string };
+  const user = request.user as JWTPayload | undefined;
+  // Captura o ID tanto de params (ex: /orders/:id) quanto de query
+  const { id: resourceId } = (request.params as { id: string }) || {};
 
-  if (!user) {
+  if (!user)
     return reply
       .status(401)
       .send({ success: false, message: "Não autenticado." });
-  }
 
-  const isOwner = user.id === id || (user as any)._id === id;
+  const isOwner = user.id === resourceId;
   const isAdmin = user.role === UserRole.ADMIN;
 
   if (!isOwner && !isAdmin) {
     logger.warn(
-      { userId: user.id, resourceId: id },
-      "Tentativa de acesso a recurso de outro usuário",
+      { userId: user.id, resourceId, action: "OWNERSHIP_VIOLATION" },
+      "Tentativa de acesso a recurso alheio",
     );
 
     return reply.status(403).send({
       success: false,
-      message: "Acesso negado. Você não tem permissão para este recurso.",
+      message: "Acesso negado. Este recurso não pertence à sua conta.",
     });
   }
 };
 
 /**
- * 4. Autorização de Carrinho
+ * 4. SHORTCUTS PARA ROTAS
  */
-export const authorizeCart = async (
-  request: FastifyRequest,
-  reply: FastifyReply,
-): Promise<void> => {
-  const user = request.user as { id: string } | undefined;
-
-  if (!user) {
-    return reply
-      .status(401)
-      .send({ success: false, message: "Sessão expirada." });
-  }
-};
-
-// --- Atalhos de Middleware ---
 export const adminOnly = verifyRole([UserRole.ADMIN]);
 export const customerOnly = verifyRole([UserRole.CUSTOMER]);
+export const anyRole = verifyRole([UserRole.ADMIN, UserRole.CUSTOMER]);

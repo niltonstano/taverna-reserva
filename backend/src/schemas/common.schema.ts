@@ -1,4 +1,3 @@
-// src/schemas/common.schema.ts
 import { z } from "zod";
 
 /**
@@ -26,15 +25,9 @@ export const paginationSchema = z.object({
  * Schema para ordenação (sort)
  */
 export const sortSchema = z.object({
-  sortBy: z
-    .string()
-    .optional()
-    .default("createdAt"),
+  sortBy: z.string().optional().default("createdAt"),
 
-  sortOrder: z
-    .enum(["asc", "desc"])
-    .optional()
-    .default("desc"),
+  sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
 });
 
 /**
@@ -69,7 +62,7 @@ export function createPaginatedResponse<T>(
   data: T[],
   total: number,
   page: number,
-  limit: number
+  limit: number,
 ): PaginatedResponse<T> {
   const totalPages = Math.ceil(total / limit);
 

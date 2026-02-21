@@ -1,98 +1,163 @@
-import { CheckCircle, Clock, Eye, Package, RefreshCw, Truck } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Eye, RefreshCw, Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { resolveWineImage } from '../../components/utils/wine-images';
+import { useAdminData } from '../../hooks/useAdminData';
 import { api } from '../../services/api';
 
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  pending: { label: 'Pendente', color: 'text-amber-500' },
+  processing: { label: 'Preparando', color: 'text-blue-500' },
+  shipped: { label: 'Enviado', color: 'text-purple-500' },
+  delivered: { label: 'Entregue', color: 'text-emerald-500' },
+  cancelled: { label: 'Cancelado', color: 'text-red-500' },
+};
+
 export function AdminOrders() {
-  const [orders, setOrders] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const fetchOrders = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get('/admin/orders'); // Rota que busca todas as ordens no backend
-      setOrders(res.data);
-    } catch (err) {
-      console.error('Erro ao procurar pedidos:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Hook centralizado para dados
+  const { data: orders, setData: setOrders, loading, refresh } = useAdminData<any>('admin/orders');
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
-
+  // Atualização de status com feedback instantâneo (Optimistic UI)
   const updateStatus = async (orderId: string, newStatus: string) => {
     try {
       await api.patch(`/admin/orders/${orderId}`, { status: newStatus });
-      fetchOrders(); // Recarrega a lista
+      setOrders((prev) => prev.map((o) => (o._id === orderId ? { ...o, status: newStatus } : o)));
     } catch (err) {
-      alert('Erro ao atualizar status');
+      alert('Erro ao atualizar status. Tente novamente.');
+      refresh();
     }
   };
 
-  const statusConfig = {
-    pending: { label: 'Pendente', color: 'text-amber-500', icon: Clock },
-    processing: { label: 'Preparando', color: 'text-blue-500', icon: Package },
-    shipped: { label: 'Enviado', color: 'text-purple-500', icon: Truck },
-    delivered: { label: 'Entregue', color: 'text-emerald-500', icon: CheckCircle },
-  };
+  // Filtro inteligente
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order: any) => {
+      const term = searchTerm.toLowerCase();
+      const customer = (order.user?.name || order.user?.username || order.customer?.name || '').toLowerCase();
+      const orderId = String(order._id || order.id || '').toLowerCase();
+      return customer.includes(term) || orderId.includes(term);
+    });
+  }, [orders, searchTerm]);
 
   return (
-    <div className="p-8 bg-[#050505] min-h-screen text-white">
-      <header className="flex justify-between items-center mb-10">
-        <div>
-          <h1 className="text-3xl font-serif italic">
-            Gestão de <span className="text-[#c2410c]">Pedidos</span>
+    <div className="min-h-screen bg-[#050505] text-zinc-300 pb-20 font-sans">
+      {/* Navbar Superior */}
+      <nav className="border-b border-white/5 bg-black/40 backdrop-blur-xl sticky top-0 z-50 h-20 flex items-center px-6">
+        <div className="max-w-7xl mx-auto w-full flex justify-between items-center">
+          <h1 className="font-serif italic text-2xl text-white">
+            Taverna<span className="text-[#c2410c]">.</span>Orders
           </h1>
-          <p className="text-zinc-500 font-cinzel text-[10px] tracking-widest uppercase">Controle de Saída da Adega</p>
-        </div>
-        <button onClick={fetchOrders} className="p-3 bg-white/5 rounded-full hover:bg-[#c2410c] transition-all">
-          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </header>
-
-      <div className="grid gap-6">
-        {orders.map((order: any) => (
-          <div
-            key={order._id}
-            className="bg-[#0a0a0a] border border-white/5 rounded-3xl p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-6"
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="p-2.5 rounded-xl bg-white/5 text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
           >
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <span className="font-cinzel text-[10px] text-zinc-500 uppercase tracking-widest">ID: {order._id}</span>
-                <span
-                  className={`font-cinzel text-[9px] px-3 py-1 rounded-full bg-white/5 font-black uppercase tracking-tighter ${
-                    statusConfig[order.status as keyof typeof statusConfig]?.color
-                  }`}
-                >
-                  {statusConfig[order.status as keyof typeof statusConfig]?.label}
-                </span>
-              </div>
-              <h3 className="text-lg font-serif italic">
-                {order.items.length} Rótulos • Total: R$ {order.totalPrice.toFixed(2)}
-              </h3>
-              <p className="text-zinc-600 text-[10px] uppercase font-cinzel">{new Date(order.createdAt).toLocaleString()}</p>
-            </div>
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </nav>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={order.status}
-                onChange={(e) => updateStatus(order._id, e.target.value)}
-                className="bg-black border border-white/10 rounded-full px-4 py-2 font-cinzel text-[10px] uppercase tracking-widest outline-none focus:border-[#c2410c] transition-all"
-              >
-                <option value="pending">Pendente</option>
-                <option value="processing">Preparando</option>
-                <option value="shipped">Enviado</option>
-                <option value="delivered">Entregue</option>
-              </select>
-              <button className="p-3 bg-white/5 rounded-full hover:text-[#c2410c] transition-colors">
-                <Eye size={18} />
-              </button>
-            </div>
+      <main className="max-w-7xl mx-auto px-6 py-10">
+        {/* Header e Busca */}
+        <div className="flex flex-col md:flex-row gap-6 mb-12 justify-between items-center">
+          <div className="text-center md:text-left">
+            <h2 className="text-white text-2xl font-medium tracking-tight">Gestão de Pedidos</h2>
+            <p className="text-zinc-500 text-xs mt-1 italic tracking-widest uppercase">Controle de Saída e Logística</p>
           </div>
-        ))}
-      </div>
+
+          <div className="relative w-full md:w-96">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-600" size={16} />
+            <input
+              type="text"
+              placeholder="Buscar por cliente ou ID do pedido..."
+              className="w-full bg-white/5 border border-white/10 pl-12 pr-4 py-3.5 rounded-2xl text-xs outline-none focus:border-orange-500 transition-all placeholder:text-zinc-700"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Listagem principal */}
+        <div className="grid gap-4">
+          {loading && orders.length === 0 ? (
+            <div className="text-center py-32 opacity-30 italic font-serif text-2xl animate-pulse">Consultando adega...</div>
+          ) : filteredOrders.length > 0 ? (
+            filteredOrders.map((order: any) => {
+              // Agora usamos a função global que resolve a imagem perfeitamente
+              const previewImg = resolveWineImage(order.items?.[0]);
+              const status = STATUS_CONFIG[order.status] || { label: order.status, color: 'text-zinc-400' };
+
+              return (
+                <div
+                  key={order._id}
+                  className="group bg-zinc-900/20 border border-white/5 rounded-[32px] p-5 hover:border-orange-500/20 transition-all duration-300"
+                >
+                  <div className="flex flex-col lg:flex-row justify-between gap-6">
+                    <div className="flex gap-6">
+                      {/* Preview da Garrafa Sincronizado */}
+                      <div className="w-16 h-20 bg-black/40 rounded-2xl flex items-center justify-center shrink-0 border border-white/5 overflow-hidden shadow-inner">
+                        <img
+                          src={previewImg}
+                          alt="Produto"
+                          className="h-full w-full object-contain p-2 transition-transform duration-500 group-hover:scale-110"
+                        />
+                      </div>
+
+                      {/* Dados do Pedido */}
+                      <div className="flex flex-col justify-center">
+                        <div className="flex items-center gap-3 mb-1.5">
+                          <span className="text-[10px] text-zinc-600 font-mono font-bold bg-white/5 px-2 py-0.5 rounded">
+                            #{String(order._id).slice(-6).toUpperCase()}
+                          </span>
+                          <span className={`text-[9px] font-black uppercase tracking-widest ${status.color}`}>{status.label}</span>
+                        </div>
+
+                        <h3 className="text-white font-medium text-lg">{order.user?.name || order.user?.username || 'Cliente Taverna'}</h3>
+
+                        <div className="flex items-center gap-4 mt-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                            <span className="text-zinc-400 text-[11px] font-bold">
+                              {order.items?.length || 0} {order.items?.length === 1 ? 'Item' : 'Itens'}
+                            </span>
+                          </div>
+                          <span className="text-orange-200/40 text-[11px] font-mono">R$ {Number(order.totalPrice || 0).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Ações */}
+                    <div className="flex items-center gap-3 self-end lg:self-center">
+                      <select
+                        value={order.status}
+                        onChange={(e) => updateStatus(order._id, e.target.value)}
+                        className="bg-black/60 border border-white/10 rounded-xl px-4 py-3 text-[10px] font-black uppercase cursor-pointer text-zinc-500 hover:text-white hover:border-orange-500/50 transition-all outline-none appearance-none text-center"
+                      >
+                        <option value="pending">Pendente</option>
+                        <option value="processing">Preparando</option>
+                        <option value="shipped">Enviado</option>
+                        <option value="delivered">Entregue</option>
+                        <option value="cancelled">Cancelado</option>
+                      </select>
+
+                      <button
+                        title="Ver Detalhes"
+                        className="p-3.5 bg-white/5 rounded-xl text-zinc-500 hover:bg-[#c2410c] hover:text-white transition-all shadow-lg"
+                      >
+                        <Eye size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          ) : (
+            <div className="col-span-full text-center py-20 bg-white/5 rounded-[40px] border border-dashed border-white/10">
+              <p className="text-zinc-600 italic">Nenhum pedido encontrado na adega.</p>
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

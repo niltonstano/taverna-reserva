@@ -1,139 +1,123 @@
-import { ClientSession, Model, Types } from "mongoose";
-import { IProduct, IProductLean } from "../interfaces/product.interface.js";
-import { ProductModel } from "../models/product.model.js";
+import { ClientSession, FilterQuery, Model, Types } from "mongoose";
+import { IProductDB, ProductModel } from "../models/product.model.js";
+
+// Tipagem estrita para garantir que o _id esteja sempre presente no retorno
+export type ProductResult = IProductDB & { _id: Types.ObjectId };
 
 export class ProductRepository {
-  constructor(private readonly model: Model<IProduct> = ProductModel) {}
+  constructor(private readonly model: Model<IProductDB> = ProductModel) {}
 
-  async findById(id: string): Promise<IProductLean | null> {
-    if (!Types.ObjectId.isValid(id)) return null;
-
-    return this.model.findById(id).lean<IProductLean>().exec();
-  }
-
+  /**
+   * 🔍 Busca paginada com filtro opcional de nome ou categoria
+   */
   async findPaginated(
-    page = 1,
-    limit = 10,
+    page: number,
+    limit: number,
     searchTerm?: string,
-  ): Promise<{ data: IProductLean[]; total: number }> {
+  ): Promise<{ data: ProductResult[]; total: number; pages: number }> {
     const skip = (page - 1) * limit;
+    const filter: FilterQuery<IProductDB> = { active: true };
 
-    const filter = searchTerm
-      ? { name: { $regex: searchTerm, $options: "i" }, active: true }
-      : { active: true };
+    if (searchTerm) {
+      const searchRegex = { $regex: searchTerm, $options: "i" };
+      filter.$or = [{ name: searchRegex }, { category: searchRegex }];
+    }
 
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .sort({ createdAt: -1 })
-        .lean<IProductLean[]>()
+        .lean<ProductResult[]>()
         .exec(),
       this.model.countDocuments(filter),
     ]);
 
-    return { data, total };
+    return {
+      data,
+      total,
+      pages: Math.ceil(total / limit),
+    };
   }
 
-  /**
-   * 🔻 Baixa de estoque com verificação atômica
-   */
-  async decreaseStock(
-    productId: string,
-    quantity: number,
-    session?: ClientSession,
-  ): Promise<boolean> {
-    if (!Types.ObjectId.isValid(productId)) return false;
-
-    const result = await this.model.updateOne(
-      {
-        _id: new Types.ObjectId(productId),
-        active: true,
-        stock: { $gte: quantity },
-      },
-      { $inc: { stock: -quantity } },
-      { session },
-    );
-
-    return result.modifiedCount === 1;
-  }
-
-  /**
-   * 🔺 Reposição de estoque (rollback / cancelamento)
-   */
-  async increaseStock(
-    productId: string,
-    quantity: number,
-    session?: ClientSession,
-  ): Promise<void> {
-    if (!Types.ObjectId.isValid(productId)) return;
-
-    await this.model.updateOne(
-      { _id: new Types.ObjectId(productId) },
-      { $inc: { stock: quantity } },
-      { session },
-    );
-  }
-
-  /**
-   * Método usado pelo CheckoutService
+  /** * 📦 Baixa de estoque segura e atômica
+   * Suporta números negativos para reposição (Rollback)
    */
   async updateStock(
-    productId: string,
+    id: string,
     quantity: number,
     session?: ClientSession,
-  ): Promise<boolean> {
-    return this.decreaseStock(productId, quantity, session);
-  }
-
-  async create(
-    data: Partial<IProduct>,
-    session?: ClientSession,
-  ): Promise<IProductLean> {
-    const [created] = await this.model.create([data], { session });
-
-    const product = await this.model
-      .findById(created._id)
-      .lean<IProductLean>()
-      .session(session ?? null)
-      .exec();
-
-    if (!product) throw new Error("Erro ao buscar produto após criação");
-
-    return product;
-  }
-
-  async update(
-    id: string,
-    data: Partial<IProduct>,
-  ): Promise<IProductLean | null> {
+  ): Promise<ProductResult | null> {
     if (!Types.ObjectId.isValid(id)) return null;
 
+    // Se for venda (qty > 0), o filtro exige saldo suficiente ($gte).
+    // Se for reposição (qty < 0), o filtro apenas garante que o produto existe e está ativo.
+    const filter: FilterQuery<IProductDB> = { _id: id, active: true };
+    if (quantity > 0) {
+      filter.stock = { $gte: quantity };
+    }
+
     return this.model
-      .findByIdAndUpdate(id, { $set: data }, { new: true })
-      .lean<IProductLean>()
-      .exec();
-  }
-
-  async delete(id: string): Promise<boolean> {
-    if (!Types.ObjectId.isValid(id)) return false;
-
-    const result = await this.model.deleteOne({ _id: id }).exec();
-    return result.deletedCount === 1;
+      .findOneAndUpdate(
+        filter,
+        { $inc: { stock: -quantity } },
+        { new: true, session, lean: true },
+      )
+      .exec() as Promise<ProductResult | null>;
   }
 
   /**
-   * 🌱 Seed inicial de produtos
-   * Usado apenas para setup inicial ou ambientes de teste
+   * 🆔 Busca produto por ID (Apenas ativos)
    */
-  async seed(
-    products: Partial<IProduct>[],
-    session?: ClientSession,
-  ): Promise<{ imported: number }> {
-    if (!products.length) return { imported: 0 };
+  async findById(id: string): Promise<ProductResult | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    return this.model
+      .findOne({ _id: id, active: true })
+      .lean<ProductResult>()
+      .exec();
+  }
 
-    const created = await this.model.insertMany(products, { session });
-    return { imported: created.length };
+  /**
+   * 🆕 Cria um novo produto
+   * Nota: Usamos array no .create para compatibilidade com Transactions
+   */
+  async create(
+    data: Partial<IProductDB>,
+    session?: ClientSession,
+  ): Promise<ProductResult> {
+    const [product] = await this.model.create([data], { session });
+    return product.toObject() as ProductResult;
+  }
+
+  /**
+   * ✏️ Atualiza dados cadastrais do produto
+   */
+  async update(
+    id: string,
+    data: Partial<IProductDB>,
+    session?: ClientSession,
+  ): Promise<ProductResult | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    return this.model
+      .findOneAndUpdate(
+        { _id: id, active: true },
+        { $set: data },
+        { new: true, lean: true, session },
+      )
+      .exec() as Promise<ProductResult | null>;
+  }
+
+  /**
+   * 🗑️ Soft Delete (Desativa o produto)
+   */
+  async delete(id: string, session?: ClientSession): Promise<boolean> {
+    if (!Types.ObjectId.isValid(id)) return false;
+
+    const result = await this.model
+      .updateOne({ _id: id }, { $set: { active: false } }, { session })
+      .exec();
+
+    return result.modifiedCount > 0;
   }
 }

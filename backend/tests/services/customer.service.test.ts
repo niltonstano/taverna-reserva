@@ -1,73 +1,101 @@
-import { describe, it, expect, beforeEach, jest } from "@jest/globals";
-import { CustomerService } from "../../src/services/customer.service.js";
-import { CustomerRepository } from "../../src/repositories/customer.repository.js";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { Types } from "mongoose";
+import { CustomerService } from "../../src/services/customer.service.js";
+import { BadRequestError, NotFoundError } from "../../src/utils/errors.js";
 
-// Mock do módulo
-jest.mock("../../src/repositories/customer.repository.js");
-
-describe("CustomerService", () => {
+describe("👥 CustomerService - Unidade", () => {
   let customerService: CustomerService;
-  // Usamos any aqui para evitar o conflito de tipos 'never' do compilador
-  let mockCustomerRepository: any;
+  let mockRepository: any;
 
   beforeEach(() => {
-    // Instanciamos o mock
-    mockCustomerRepository = new CustomerRepository() as jest.Mocked<CustomerRepository>;
-    
-    // Injeção de dependência
-    customerService = new CustomerService(mockCustomerRepository);
-    
+    mockRepository = {
+      findById: jest.fn(),
+      findAll: jest.fn(),
+      findAllNoPagination: jest.fn(),
+      delete: jest.fn(),
+    };
+
+    // Injetando o mock no service
+    customerService = new CustomerService(mockRepository);
     jest.clearAllMocks();
   });
 
   describe("getById", () => {
-    it("deve retornar o cliente formatado sem senha quando encontrado", async () => {
-      const customerId = new Types.ObjectId();
-      
-      const mockUserFromDb = {
-        _id: customerId,
-        name: "Nilton",
-        email: "nilton@example.com",
-        password: "hash_secreto",
-        toObject: () => ({
-          _id: customerId,
-          name: "Nilton",
-          email: "nilton@example.com",
-          password: "hash_secreto"
-        })
-      };
+    test("Deve retornar um cliente quando o ID é válido e existe", async () => {
+      const validId = new Types.ObjectId().toString();
+      const mockCustomer = { _id: validId, name: "Nilton" };
+      mockRepository.findById.mockResolvedValue(mockCustomer);
 
-      // ✅ Usando o cast direto na chamada para ignorar o erro de tipagem 'never'
-      jest.spyOn(mockCustomerRepository, 'findById').mockResolvedValue(mockUserFromDb as any);
+      const result = await customerService.getById(validId);
 
-      const result = await customerService.getById(customerId.toString());
-
-      expect(mockCustomerRepository.findById).toHaveBeenCalledWith(customerId.toString());
-      expect(result).not.toBeNull();
-      expect(result?.id).toBe(customerId.toString());
-      expect(result).not.toHaveProperty("password");
+      expect(result).toEqual(mockCustomer);
+      expect(mockRepository.findById).toHaveBeenCalledWith(validId);
     });
 
-    it("deve retornar null quando o cliente não for encontrado", async () => {
-      jest.spyOn(mockCustomerRepository, 'findById').mockResolvedValue(null);
+    test("Deve lançar BadRequestError se o formato do ID for inválido", async () => {
+      const invalidId = "id-zuado";
 
-      const result = await customerService.getById("id-inexistente");
+      await expect(customerService.getById(invalidId)).rejects.toThrow(
+        BadRequestError,
+      );
+    });
 
-      expect(result).toBeNull();
+    test("Deve lançar NotFoundError se o cliente não existir", async () => {
+      const validId = new Types.ObjectId().toString();
+      mockRepository.findById.mockResolvedValue(null);
+
+      await expect(customerService.getById(validId)).rejects.toThrow(
+        NotFoundError,
+      );
     });
   });
 
-  describe("getCustomerById (Alias)", () => {
-    it("deve chamar o getById internamente", async () => {
-      const spy = jest.spyOn(customerService, "getById");
-      jest.spyOn(mockCustomerRepository, 'findById').mockResolvedValue(null);
+  describe("getAll (Paginação)", () => {
+    test("Deve aplicar limites seguros e calcular páginas corretamente", async () => {
+      mockRepository.findAll.mockResolvedValue({
+        customers: [{ name: "Cliente 1" }],
+        total: 15,
+      });
 
-      const testId = new Types.ObjectId().toString();
-      await customerService.getCustomerById(testId);
+      // Testando com limite alto (deve baixar para 100) e página negativa (deve subir para 1)
+      const result = await customerService.getAll(-5, 500);
 
-      expect(spy).toHaveBeenCalledWith(testId);
-      spy.mockRestore();
+      expect(result.pagination.limit).toBe(100);
+      expect(result.pagination.page).toBe(1);
+      expect(result.pagination.pages).toBe(1); // ceil(15/100) = 1
+      expect(mockRepository.findAll).toHaveBeenCalledWith(1, 100);
+    });
+
+    test("Deve retornar a estrutura correta de paginação", async () => {
+      mockRepository.findAll.mockResolvedValue({
+        customers: [],
+        total: 50,
+      });
+
+      const result = await customerService.getAll(1, 20);
+
+      expect(result.pagination.total).toBe(50);
+      expect(result.pagination.pages).toBe(3); // ceil(50/20) = 3
+    });
+  });
+
+  describe("delete", () => {
+    test("Deve deletar com sucesso um ID válido", async () => {
+      const validId = new Types.ObjectId().toString();
+      mockRepository.delete.mockResolvedValue(true);
+
+      await expect(customerService.delete(validId)).resolves.not.toThrow();
+      expect(mockRepository.delete).toHaveBeenCalledWith(validId);
+    });
+
+    test("Deve lançar NotFoundError se tentar deletar algo que não existe", async () => {
+      const validId = new Types.ObjectId().toString();
+      mockRepository.delete.mockResolvedValue(false);
+
+      await expect(customerService.delete(validId)).rejects.toThrow(
+        NotFoundError,
+      );
     });
   });
 });

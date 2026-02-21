@@ -1,140 +1,159 @@
+import { Types } from "mongoose";
 import { CartRepository } from "../repositories/cart.repository.js";
 import { ProductRepository } from "../repositories/product.repository.js";
-import { IProduct } from "../models/product.model.js";
-import { Types } from "mongoose";
+import { CartResponse, PopulatedCartItem } from "../types/cart.type.js";
+import { BadRequestError } from "../utils/errors.js";
 
 /**
- * Interface rigorosa para o Produto populado dentro do Carrinho.
- * Extraímos os campos necessários diretamente de IProduct para manter o S.O.L.I.D.
+ * Service responsável pela lógica de negócio do carrinho de compras.
+ * Segue o princípio de responsabilidade única (SRP).
  */
-export interface CartProductData extends Pick<IProduct, "name" | "price" | "stock" | "active"> {
-  _id: Types.ObjectId | string;
-}
-
-export interface PopulatedCartItem {
-  productId: CartProductData;
-  quantity: number;
-}
-
-export interface CartResponse {
-  _id: string;
-  userId: string;
-  items: PopulatedCartItem[];
-  totalItems: number;
-  totalPrice: string;
-  updatedAt: string;
-}
-
 export class CartService {
-  private readonly cartRepository: CartRepository;
-  private readonly productRepository: ProductRepository;
+  constructor(
+    private readonly cartRepository: CartRepository,
+    private readonly productRepository: ProductRepository,
+  ) {}
 
-  constructor(cartRepository?: CartRepository, productRepository?: ProductRepository) {
-    this.cartRepository = cartRepository || new CartRepository();
-    this.productRepository = productRepository || new ProductRepository();
-  }
+  /**
+   * Adiciona um item ao carrinho com validações rigorosas de estoque e status.
+   */
+  public async addItem(
+    userId: string,
+    productId: string,
+    quantity: number,
+  ): Promise<CartResponse> {
+    const uId = this.validateId(userId);
+    const pId = this.validateId(productId);
 
-  public async getCartByUserId(userId: string): Promise<CartResponse> {
-    const cleanUserId = this.validateAndConvertId(userId);
-    const cart = await this.cartRepository.findByUserId(cleanUserId);
-
-    if (!cart || !cart.items || cart.items.length === 0) {
-      return this.emptyResponse(cleanUserId);
+    if (quantity <= 0) {
+      throw new BadRequestError("A quantidade deve ser maior que zero.");
     }
 
-    // Filtra e mapeia os itens garantindo que productId está populado
-    const validItems: PopulatedCartItem[] = (cart.items as unknown as PopulatedCartItem[])
-      .filter(item => item.productId && typeof item.productId === 'object');
+    const product = await this.productRepository.findById(pId);
+
+    // Validação de Disponibilidade: Não basta o produto existir, ele deve estar ativo.
+    if (!product || product.active === false) {
+      throw new BadRequestError("PRODUTO_INDISPONIVEL");
+    }
+
+    // Validação de Estoque
+    if (product.stock < quantity) {
+      throw new BadRequestError("ESTOQUE_INSUFICIENTE");
+    }
+
+    // Operação Atômica: Evita problemas de concorrência no banco
+    await this.cartRepository.addItemAtomic(uId, pId, quantity);
+
+    return this.getCartByUserId(uId);
+  }
+
+  /**
+   * Remove um produto específico do carrinho do usuário.
+   */
+  public async removeItem(
+    userId: string,
+    productId: string,
+  ): Promise<CartResponse> {
+    const uId = this.validateId(userId);
+    const pId = this.validateId(productId);
+
+    await this.cartRepository.removeItem(uId, pId);
+
+    return this.getCartByUserId(uId);
+  }
+
+  /**
+   * Esvazia o carrinho completamente.
+   */
+  public async clearCart(userId: string): Promise<void> {
+    const uId = this.validateId(userId);
+    await this.cartRepository.clearCart(uId);
+  }
+
+  /**
+   * Recupera o carrinho populado e calcula os totais em tempo real.
+   */
+  public async getCartByUserId(userId: string): Promise<CartResponse> {
+    const uId = this.validateId(userId);
+    const cart = await this.cartRepository.findByUserId(uId);
+
+    if (!cart || !cart.items?.length) {
+      return this.emptyResponse(uId);
+    }
+
+    // Mapeamento seguro de dados para evitar vazamento de campos internos do banco
+    const validItems: PopulatedCartItem[] = cart.items.map((item: any) =>
+      this.formatCartItem(item),
+    );
 
     const { totalPrice, totalItems } = this.calculateTotals(validItems);
 
     return {
       _id: cart._id.toString(),
-      userId: cleanUserId,
+      userId: uId,
       items: validItems,
-      totalItems,
       totalPrice,
-      updatedAt: cart.updatedAt ? new Date(cart.updatedAt as Date).toISOString() : new Date().toISOString()
+      totalItems,
+      updatedAt: new Date(cart.updatedAt).toISOString(),
     };
-  }
-
-  public async addItem(userId: string, productId: string, quantity: number): Promise<CartResponse> {
-    const cleanUserId = this.validateAndConvertId(userId);
-    const cleanProductId = this.validateAndConvertId(productId);
-    
-    const qty = Math.floor(quantity);
-    if (qty <= 0) throw new Error("A quantidade deve ser um número positivo.");
-
-    const product = await this.productRepository.findById(cleanProductId);
-    if (!product) throw new Error("Produto não encontrado.");
-    
-    if (product.active === false) throw new Error("Este produto está inativo.");
-    if (product.stock < qty) throw new Error(`Estoque insuficiente. Disponível: ${product.stock}`);
-
-    const cart = await this.cartRepository.updateItemAtomatic(cleanUserId, cleanProductId, qty);
-    if (!cart) throw new Error("Erro crítico: falha ao atualizar persistência do carrinho.");
-
-    return this.getCartByUserId(cleanUserId);
-  }
-
-  public async removeItem(userId: string, productId: string): Promise<CartResponse> {
-    const cleanUserId = this.validateAndConvertId(userId);
-    const cleanProductId = this.validateAndConvertId(productId);
-
-    await this.cartRepository.update(cleanUserId, { 
-      $pull: { items: { productId: new Types.ObjectId(cleanProductId) } } 
-    });
-    
-    return this.getCartByUserId(cleanUserId);
-  }
-
-  public async clearCart(userId: string): Promise<void> {
-    const cleanUserId = this.validateAndConvertId(userId);
-    await this.cartRepository.clearCart(cleanUserId);
   }
 
   /**
-   * Sanitização e conversão segura de IDs.
-   * Substitui o 'any' por uma união de tipos prováveis.
+   * Valida se a string é um ObjectId válido do MongoDB.
    */
-  private validateAndConvertId(id: string | Types.ObjectId | Uint8Array | unknown): string {
-    if (!id) throw new Error("ID não fornecido.");
-
-    let stringId: string;
-
-    if (id instanceof Types.ObjectId) {
-      stringId = id.toHexString();
-    } else if (typeof id === 'string') {
-      stringId = id;
-    } else {
-      stringId = String(id);
+  private validateId(id: string): string {
+    if (!id || !Types.ObjectId.isValid(id)) {
+      throw new BadRequestError("ID_INVALIDO");
     }
-    
-    if (!Types.ObjectId.isValid(stringId) || stringId === "[object Object]") {
-      throw new Error(`Tentativa de uso de ID inválido: ${stringId}`);
-    }
-    
-    return stringId;
+    return id;
   }
 
-  private calculateTotals(items: PopulatedCartItem[]) {
-    const totals = items.reduce(
-      (acc, item) => {
-        const price = Number(item.productId.price) || 0;
-        const q = Number(item.quantity) || 0;
-        acc.totalPrice += price * q;
-        acc.totalItems += q;
-        return acc;
-      },
-      { totalPrice: 0, totalItems: 0 }
-    );
-
+  /**
+   * Formata o item vindo do repositório para o DTO de resposta.
+   */
+  private formatCartItem(item: any): PopulatedCartItem {
     return {
-      totalPrice: totals.totalPrice.toFixed(2),
-      totalItems: totals.totalItems
+      productId: {
+        _id: String(item.productId._id),
+        name: String(item.productId.name),
+        price: Number(item.productId.price),
+        stock: Number(item.productId.stock),
+        active: Boolean(item.productId.active),
+        image: String(item.productId.image_url || ""),
+        weight: Number(item.productId.weight) || 0.5,
+        dimensions: {
+          width: Number(item.productId.dimensions?.width) || 11,
+          height: Number(item.productId.dimensions?.height) || 17,
+          length: Number(item.productId.dimensions?.length) || 11,
+        },
+      },
+      quantity: item.quantity,
     };
   }
 
+  /**
+   * Centraliza o cálculo de valores para garantir precisão decimal.
+   */
+  private calculateTotals(items: PopulatedCartItem[]) {
+    const totals = items.reduce(
+      (acc, item) => {
+        const itemPrice = Number(item.productId.price);
+        acc.amountCents += Math.round(itemPrice * 100) * item.quantity;
+        acc.qty += item.quantity;
+        return acc;
+      },
+      { amountCents: 0, qty: 0 },
+    );
+
+    return {
+      totalPrice: (totals.amountCents / 100).toFixed(2),
+      totalItems: totals.qty,
+    };
+  }
+
+  /**
+   * Retorno padrão para carrinhos inexistentes ou limpos.
+   */
   private emptyResponse(userId: string): CartResponse {
     return {
       _id: "",
@@ -142,7 +161,7 @@ export class CartService {
       items: [],
       totalItems: 0,
       totalPrice: "0.00",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
   }
 }

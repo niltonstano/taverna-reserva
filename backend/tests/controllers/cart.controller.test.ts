@@ -1,38 +1,60 @@
-import { jest } from '@jest/globals';
-import { CartController } from '../../src/controllers/cart.controller.js';
+import { beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { CartController } from "../../src/controllers/cart.controller.js";
+import { UnauthorizedError } from "../../src/utils/errors.js";
 
-describe('CartController - Cobertura Total', () => {
+describe("CartController - Testes Completos", () => {
   let controller: CartController;
   let mockCartService: any;
+  let mockReq: any;
   let mockReply: any;
 
-  const createMockRequest = (overrides = {}) => ({
-    user: { id: '65a12345678901234567890a' },
-    log: { error: jest.fn() }, // ✅ Correção aqui
-    body: {},
-    params: {},
-    headers: {},
-    ...overrides
-  } as any);
+  // Mock de um ObjectId válido para passar na validação do Mongoose
+  const validUserId = "507f1f77bcf86cd799439011";
 
   beforeEach(() => {
-    mockCartService = { getCartByUserId: jest.fn(), addItem: jest.fn(), removeItem: jest.fn(), clearCart: jest.fn() };
+    jest.clearAllMocks();
+    mockCartService = {
+      getCartByUserId: jest.fn(),
+      addItem: jest.fn(),
+      removeItem: jest.fn(),
+      clearCart: jest.fn(),
+    };
+
     controller = new CartController(mockCartService);
-    mockReply = { status: jest.fn().mockReturnThis(), send: jest.fn().mockReturnThis() } as any;
+
+    mockReply = {
+      status: jest.fn().mockReturnThis(),
+      send: jest.fn().mockReturnThis(),
+    };
+
+    mockReq = {
+      user: { id: validUserId },
+      log: { error: jest.fn() },
+      body: {},
+      params: {},
+    } as any;
   });
 
-  test('addItem deve retornar 201 em vez de 200', async () => {
-    const mockRequest = createMockRequest({ 
-      body: { productId: '65a12345678901234567890b', quantity: 1 } 
-    });
-    mockCartService.addItem.mockResolvedValue({});
-    await controller.addItem(mockRequest, mockReply);
-    expect(mockReply.status).toHaveBeenCalledWith(201); // ✅ Alinhado com o Controller
+  test("getCart - deve retornar o carrinho com sucesso", async () => {
+    mockCartService.getCartByUserId.mockResolvedValue({ items: [] });
+    await controller.getCart(mockReq, mockReply);
+    expect(mockReply.status).toHaveBeenCalledWith(200);
   });
 
-  test('getCart deve tratar erro com status 400', async () => {
-    mockCartService.getCartByUserId.mockRejectedValue(new Error('fail'));
-    await controller.getCart(createMockRequest(), mockReply);
-    expect(mockReply.status).toHaveBeenCalledWith(400);
+  test("validateUser - deve lançar erro se o ID for inválido", async () => {
+    mockReq.user.id = "invalid-id";
+    await expect(controller.getCart(mockReq, mockReply)).rejects.toThrow(
+      UnauthorizedError,
+    );
+  });
+
+  test("handleError - deve relançar falhas do service para o handler global", async () => {
+    const serviceError = new Error("Erro de conexão");
+    mockCartService.getCartByUserId.mockRejectedValue(serviceError);
+
+    // Como o controller agora dá "throw error", o expect deve ser .rejects
+    await expect(controller.getCart(mockReq, mockReply)).rejects.toThrow(
+      "Erro de conexão",
+    );
   });
 });

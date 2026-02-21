@@ -1,242 +1,214 @@
-import { ArrowLeft, Truck } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import { AlertCircle, ArrowLeft, Truck } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-import { SuccessModal } from '../../components/checkout/SuccessModal';
-import { Footer } from '../../components/common/Footer';
-import { CheckoutSection } from '../../components/ui/CheckoutSection';
-import { Input } from '../../components/ui/Input';
-import { useCart } from '../../context/CartContext';
+import { v4 as uuidv4 } from 'uuid';
+import { useCart, useCartActions } from '../../context/CartContext';
 import { api } from '../../services/api';
 
-// Subcomponentes
-import { CartItemCard } from '../../components/Cart/CartItemCard';
+// COMPONENTES E UTILS
+import CartItemCard from '../../components/Cart/CartItemCard';
 import { CartSummary } from '../../components/Cart/CartSummary';
-
-// Funções Auxiliares de Formatação
-const getCleanPrice = (preco: any): number => {
-  if (!preco) return 0;
-  if (typeof preco === 'number') return preco;
-  const clean = String(preco)
-    .replace(/[R$\s.]/g, '')
-    .replace(',', '.');
-  return parseFloat(clean) || 0;
-};
+import { CheckoutSection } from '../../components/ui/CheckoutSection';
+import { Input } from '../../components/ui/Input';
+import { resolveWineImage } from '../../components/utils/wine-images';
 
 const formatPrice = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
+const getCleanPrice = (p: any): number => {
+  if (typeof p === 'number') return p;
+  return (
+    parseFloat(
+      String(p || 0)
+        .replace(/[R$\s.]/g, '')
+        .replace(',', '.'),
+    ) || 0
+  );
+};
+
 export function Cart() {
-  const { cart, clearCart, updateQuantity, removeFromCart } = useCart();
   const navigate = useNavigate();
+  const { cart, cartCount } = useCart();
+  const { clearCart, updateQuantity, removeFromCart } = useCartActions();
 
-  // Estados
-  const [isSuccess, setIsSuccess] = useState(false);
+  // ESTADOS LOCAIS
   const [loading, setLoading] = useState(false);
-  const [cep, setCep] = useState('');
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [endereco, setEndereco] = useState('');
-  const [frete, setFrete] = useState<{ valor: number; prazo: string } | null>(null);
-  const [whatsappUrl, setWhatsappUrl] = useState('');
+  const [cep, setCep] = useState('');
+  const [selectedShipping, setSelectedShipping] = useState<any | null>(null);
 
-  // Cálculos de Totais
+  // CÁLCULO DE SUBTOTAL
   const subtotal = useMemo(() => {
     return cart.reduce((acc, item) => {
-      const price = getCleanPrice(item.price || item.preco || (item as any).price);
+      const price = getCleanPrice(item.price || (item as any).preco);
       return acc + price * item.quantity;
     }, 0);
   }, [cart]);
 
-  const totalGeral = subtotal + (frete?.valor || 0);
-
-  // Handlers
-  const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, '');
-    setCep(value);
-
-    if (value.length === 8) {
-      const isGratis = Number(value) % 2 === 0;
-      setFrete({
-        valor: isGratis ? 0 : 45,
-        prazo: isGratis ? '2-4 dias' : '5-7 dias',
-      });
-    } else {
-      setFrete(null);
-    }
-  };
-
-  /**
-   * ✅ FUNÇÃO FINALIZAR COMPRA
-   * Sincroniza com o banco e abre o modal de sucesso com WhatsApp
-   */
-  const handleFinalizar = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validações básicas antes de processar
+  // FUNÇÃO PRINCIPAL: FINALIZAR RESERVA
+  const handleFinalizar = useCallback(async () => {
     if (cart.length === 0 || loading) return;
 
-    const savedUser = localStorage.getItem('@Taverna:user');
-    const user = savedUser ? JSON.parse(savedUser) : null;
-    const userEmail = user?.email;
+    // Recupera usuário para validação
+    const userData = localStorage.getItem('@Taverna:user');
+    const user = userData ? JSON.parse(userData) : null;
+    const userId = user?.id || user?._id;
 
-    if (!userEmail) {
-      alert('Por favor, realize o login para finalizar sua reserva.');
-      navigate('/login');
+    if (!userId) {
+      return navigate('/login', { state: { from: '/cart' } });
+    }
+
+    // Validação de Frete e Endereço
+    if (!selectedShipping || !endereco.trim()) {
+      setErrorDetails('📍 Por favor, informe o endereço completo e selecione uma opção de frete.');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
     setLoading(true);
+    setErrorDetails(null);
 
     try {
-      // 1. SINCRONIZAÇÃO COM BACKEND
-      await api.delete('/cart/clear');
+      const sPrice = parseFloat(String(selectedShipping.price || 0));
+      const totalGeral = Number((subtotal + sPrice).toFixed(2));
+      const iKey = uuidv4();
 
-      const syncPromises = cart.map((item) =>
-        api.post('/cart/items', {
-          productId: item.id || item._id || (item as any)._id,
-          quantity: item.quantity,
-        }),
-      );
-      await Promise.all(syncPromises);
-
-      // 2. REGISTRO DO PEDIDO/CHECKOUT
-      const idempotencyKey = window.crypto.randomUUID();
+      // Payload para o Backend (Fastify)
       const payload = {
-        email: userEmail,
-        idempotencyKey: idempotencyKey,
+        address: endereco.trim(),
+        zipCode: cep.replace(/\D/g, ''),
+        total: totalGeral,
+        shipping: {
+          service: String(selectedShipping.name),
+          price: sPrice,
+          deadline: Number(selectedShipping.delivery_range?.max || selectedShipping.deadline || 5),
+          company:
+            typeof selectedShipping.company === 'object' ? selectedShipping.company.name : String(selectedShipping.company || 'Transportadora'),
+        },
+        items: cart.map((i) => ({
+          productId: String(i._id || (i as any).id),
+          quantity: Number(i.quantity),
+        })),
       };
 
-      await api.post('/orders/checkout', payload, {
-        headers: {
-          'idempotency-key': idempotencyKey,
-        },
+      const response = await api.post('/checkout/process', payload, {
+        headers: { 'idempotency-key': iKey },
       });
 
-      // 3. PREPARAÇÃO DO WHATSAPP
-      const itensMsg = cart.map((i) => `• ${i.quantity}x ${i.name || i.nome}`).join('%0A');
-      const msg =
-        `*NOVA RESERVA - TAVERNA*%0A%0A` +
-        `*Cliente:* ${user.name || 'Membro'}%0A` +
-        `*Itens:*%0A${itensMsg}%0A%0A` +
-        `*Total:* ${formatPrice(totalGeral)}%0A` +
-        `*Local:* ${endereco || 'Retirada na Adega'}%0A` +
-        `*CEP:* ${cep || 'N/A'}`;
+      const orderData = response.data.order || response.data.data;
+      const shortId = orderData?._id?.slice(-6).toUpperCase() || 'RESERVA';
 
-      // Configura a URL e abre o modal de sucesso
-      setWhatsappUrl(`https://wa.me/5511999999999?text=${msg}`);
-      setIsSuccess(true);
+      // Link do WhatsApp com os dados da reserva (Ajuste o número da sua adega aqui)
+      const msg = `*NOVA RESERVA - TAVERNA*%0A*ID:* #${shortId}%0A*Total:* ${formatPrice(totalGeral)}%0A%0A*Membro:* ${user.name}`;
+      const whatsappUrl = `https://wa.me/5511999999999?text=${msg}`;
 
-      // 4. LIMPEZA DO CARRINHO LOCAL
       clearCart();
+      navigate('/success', { state: { whatsappUrl, orderId: shortId } });
     } catch (error: any) {
-      const errorMsg = error.response?.data?.message || 'Erro ao processar reserva.';
-      console.error('❌ Erro no Checkout:', error.response?.data || error.message);
-      alert(errorMsg);
+      console.error('Erro no Checkout:', error);
+      const serverMsg = error.response?.data?.message || error.response?.data?.error;
+      setErrorDetails(serverMsg || 'Falha ao processar reserva. Verifique os dados e tente novamente.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [cart, selectedShipping, endereco, cep, subtotal, navigate, clearCart, loading]);
 
   return (
-    <div className="min-h-screen bg-[#050505] text-white flex flex-col relative overflow-hidden">
-      {/* BACKGROUND IMERSIVO */}
+    <div className="min-h-screen bg-[#050505] text-white flex flex-col relative overflow-x-hidden">
+      {/* BG ESTILIZADO */}
       <div className="fixed inset-0 z-0">
-        <img src="/bg/adega1.webp" className="w-full h-full object-cover grayscale opacity-[0.12] brightness-125" alt="Background" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]" />
-        <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#c2410c]/10 blur-[150px] rounded-full opacity-30" />
+        <img src="/bg/adega3.webp" className="w-full h-full object-cover opacity-20 grayscale" alt="Background Taverna" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black via-transparent to-black" />
       </div>
 
-      <SuccessModal isOpen={isSuccess} whatsappUrl={whatsappUrl} />
-
-      <div className="max-w-7xl mx-auto px-6 pt-44 pb-24 relative z-10 flex-grow w-full">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-32 pb-24 w-full">
+        {/* VOLTAR */}
         <button
           onClick={() => navigate('/catalog')}
-          className="group flex items-center gap-3 text-zinc-500 hover:text-[#c2410c] mb-12 uppercase text-[10px] tracking-[0.6em] font-cinzel transition-all animate-in fade-in slide-in-from-left-4 duration-700"
+          className="group flex items-center gap-3 text-zinc-500 hover:text-[#c2410c] mb-12 uppercase text-[9px] tracking-[0.5em] font-cinzel transition-all"
         >
-          <ArrowLeft size={14} className="group-hover:-translate-x-2 transition-transform" />
-          Continuar Explorando
+          <ArrowLeft size={12} className="group-hover:-translate-x-1 transition-transform" />
+          Voltar ao Catálogo
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-16">
+          {/* COLUNA ESQUERDA */}
           <div className="lg:col-span-2 space-y-12">
-            <section className="space-y-6">
-              <header className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-                <h2 className="font-serif italic text-5xl mb-4 leading-none tracking-tighter">
-                  Sua <span className="text-[#c2410c]">Reserva</span>
-                </h2>
-                <div className="h-[1px] w-24 bg-gradient-to-r from-[#c2410c]/50 to-transparent" />
-              </header>
+            <div>
+              <h2 className="font-serif italic text-7xl mb-2">
+                Sua <span className="text-[#c2410c]">Adega</span>
+              </h2>
+              <p className="text-zinc-500 font-cinzel text-[10px] tracking-[0.3em] uppercase">Seleção de Rótulos Exclusivos</p>
+            </div>
 
-              {cart.length === 0 ? (
-                <div className="py-24 text-center border border-white/5 rounded-[40px] bg-white/[0.02] backdrop-blur-md flex flex-col items-center gap-4 animate-in fade-in zoom-in-95 duration-700">
-                  <p className="text-zinc-500 font-cinzel text-[11px] uppercase tracking-widest">Sua adega está vazia no momento.</p>
-                  <button
-                    onClick={() => navigate('/catalog')}
-                    className="text-[#c2410c] text-[10px] font-black uppercase border-b border-[#c2410c] pb-1 hover:text-white hover:border-white transition-colors"
-                  >
-                    Explorar Catálogo
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {cart.map((item, index) => (
-                    <div
-                      key={String(item.id || item._id || (item as any)._id)}
-                      style={{ animationDelay: `${index * 100}ms` }}
-                      className="animate-in fade-in slide-in-from-right-4 duration-700 fill-mode-both"
-                    >
-                      <CartItemCard
-                        item={item}
-                        onUpdate={updateQuantity}
-                        onRemove={removeFromCart}
-                        formatPrice={formatPrice}
-                        getCleanPrice={getCleanPrice}
-                      />
-                    </div>
-                  ))}
+            <div className="space-y-4">
+              {cart.map((item) => (
+                <CartItemCard
+                  key={String(item._id || (item as any).id)}
+                  item={{
+                    ...item,
+                    image_url: resolveWineImage(item),
+                  }}
+                  onUpdate={updateQuantity}
+                  onRemove={removeFromCart}
+                  formatPrice={formatPrice}
+                  getCleanPrice={getCleanPrice}
+                />
+              ))}
+
+              {cartCount === 0 && (
+                <div className="text-center py-24 border border-white/5 bg-white/[0.01] rounded-[40px] text-zinc-500 italic font-serif text-xl animate-pulse">
+                  Sua adega está vazia.
                 </div>
               )}
-            </section>
+            </div>
 
-            {cart.length > 0 && (
-              <form
-                onSubmit={handleFinalizar}
-                className="space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300 fill-mode-both"
-              >
-                <CheckoutSection title="Entrega" subtitle="Logística Exclusiva Taverna" icon={<Truck className="text-[#c2410c]" />}>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Input label="CEP" value={cep} onChange={handleCepChange} maxLength={8} placeholder="00000000" />
+            {cartCount > 0 && (
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-700">
+                <CheckoutSection
+                  title="Entrega"
+                  subtitle="Endereço de destino da sua curadoria"
+                  icon={<Truck size={20} className="text-[#c2410c]" />}
+                >
+                  <div className="bg-white/[0.02] p-10 rounded-[40px] border border-white/10 space-y-6">
                     <Input
-                      label="Endereço Completo"
+                      label="Endereço de Entrega"
                       value={endereco}
                       onChange={(e) => setEndereco(e.target.value)}
-                      placeholder="Rua, número, bairro..."
+                      placeholder="Ex: Rua das Videiras, 123 - Centro, São Paulo"
+                      className="bg-black/40 border-white/10 focus:border-[#c2410c]/50 transition-all"
                     />
+                    <p className="text-[10px] text-zinc-600 font-cinzel uppercase tracking-[0.2em]">
+                      * Informe o CEP ao lado para calcular as opções de frete disponíveis.
+                    </p>
                   </div>
-                  {frete && (
-                    <div className="mt-4 p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase tracking-widest flex justify-between">
-                      <span>Prazo Estimado: {frete.prazo}</span>
-                      <span>Frete: {frete.valor === 0 ? 'Grátis' : formatPrice(frete.valor)}</span>
-                    </div>
-                  )}
                 </CheckoutSection>
-
-                {/* BOTÃO LIBERADO PARA FINALIZAR */}
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-full bg-[#c2410c] py-8 rounded-full font-cinzel font-black uppercase tracking-widest text-[11px] hover:bg-white hover:text-black transition-all duration-500 disabled:bg-zinc-800 disabled:text-zinc-500 shadow-2xl shadow-orange-950/20 active:scale-[0.98]"
-                >
-                  {loading ? 'Processando Reserva...' : `Confirmar Reserva • ${formatPrice(totalGeral)}`}
-                </button>
-              </form>
+              </div>
             )}
           </div>
 
-          <aside className="lg:col-span-1 animate-in fade-in slide-in-from-left-8 duration-1000 delay-500 fill-mode-both">
-            <CartSummary subtotal={subtotal} frete={frete?.valor || 0} total={totalGeral} formatPrice={formatPrice} />
+          {/* COLUNA DIREITA (RESUMO) */}
+          <aside className="relative">
+            <div className="sticky top-32 space-y-6">
+              <CartSummary
+                subtotal={subtotal}
+                formatPrice={formatPrice}
+                loadingFinalizar={loading}
+                onFinalizar={handleFinalizar}
+                onCepChange={setCep}
+                onShippingSelect={setSelectedShipping}
+              />
+
+              {errorDetails && (
+                <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-start gap-3 animate-in slide-in-from-right-4 duration-300">
+                  <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                  <p className="text-red-500 text-[11px] leading-relaxed font-medium">{errorDetails}</p>
+                </div>
+              )}
+            </div>
           </aside>
         </div>
-      </div>
-      <Footer />
+      </main>
     </div>
   );
 }

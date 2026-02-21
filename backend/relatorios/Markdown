@@ -1,172 +1,128 @@
-🍷 Taverna Reserva — Backend E-commerce API
+# 🍷 Taverna Reserva — API de E-commerce de Alta Performance
 
-API de e-commerce desenvolvida com foco em arquitetura escalável, segurança e boas práticas de backend moderno, utilizando Fastify + MongoDB + TypeScript.
+API de e-commerce desenvolvida com foco em **resiliência, consistência de dados e segurança**, utilizando uma arquitetura escalável com **Fastify, MongoDB (Replica Set) e TypeScript**.
 
-O projeto simula um ambiente real de produção com autenticação, controle de acesso, validação rigorosa de dados e execução em containers Docker.
+O projeto vai além do CRUD básico, implementando soluções para problemas reais de sistemas distribuídos, como **concorrência de estoque e idempotência de pagamentos**.
 
-🧠 Visão Geral da Arquitetura
+---
 
-A aplicação foi construída seguindo princípios de Clean Architecture e SOLID, com separação clara de responsabilidades:
+## 🚀 Diferenciais de Engenharia (O que torna este projeto único)
 
-Controller → Service → Repository → Database
+Diferente de APIs comuns, este projeto implementa padrões de sistemas de missão crítica:
 
+### 🛡️ Consistência de Dados e Transações ACID
 
-Essa organização permite:
+Utiliza **MongoDB Replica Set** para garantir transações atômicas. No processo de checkout, a criação do pedido, a baixa de estoque e a limpeza do carrinho ocorrem em uma única transação: **ou tudo acontece, ou nada é alterado**.
 
-✔ Código desacoplado
-✔ Facilidade de manutenção
-✔ Testabilidade
-✔ Evolução sem quebrar outras partes do sistema
+### ⚡ Proteção contra Condição de Corrida (Race Conditions)
 
-🛠️ Stack Principal
-Tecnologia	Finalidade
-Node.js 24	Runtime JavaScript
-Fastify	Framework HTTP de alta performance
-TypeScript	Tipagem estática e segurança
-MongoDB + Mongoose	Banco NoSQL e modelagem de dados
-Zod	Validação de dados de entrada
-JWT	Autenticação via token
-Bcrypt	Hash seguro de senhas
-Pino Logger	Logs estruturados e performáticos
-Docker & Docker Compose	Ambiente isolado e pronto para produção
-🔐 Camada de Segurança
+O sistema de estoque foi validado com **testes de estresse simultâneos**. Se 10 usuários tentarem comprar o último item ao mesmo tempo, o sistema garante através de travas lógicas e transações que apenas 1 consiga, mantendo a integridade do inventário.
 
-A API foi projetada com múltiplas camadas de proteção:
+### 🔑 Idempotência de Operações
 
-🔒 Helmet — Proteção de headers HTTP
+Implementação de **Idempotency Keys** em rotas críticas (Checkout). Isso evita que uma falha de conexão ou um "duplo clique" do usuário resulte em duas cobranças ou dois pedidos idênticos.
 
-🚦 Rate Limit — Mitigação contra brute force
+````mermaid
+sequenceDiagram
+    participant C as Cliente (Frontend)
+    participant A as Fastify API (Taverna Engine)
+    participant R as Redis/Cache (Lock Layer)
+    participant DB as MongoDB (Replica Set)
 
-🧪 Validação com Zod — Nenhum dado entra sem validação
+    Note over C, A: Request 1 (Click Inicial)
+    C->>A: POST /checkout (Idempotency-Key: "abc-123")
+    A->>R: Verificar/Set Lock ("abc-123")
+    R-->>A: Lock Adquirido (OK)
 
-🔑 Autenticação JWT Bearer
+    Note over C, A: Request 2 (Duplo Click Acidental)
+    C->>A: POST /checkout (Idempotency-Key: "abc-123")
+    A->>R: Verificar Lock ("abc-123")
+    R-->>A: Lock Ativo (Em processamento)
+    A-->>C: 409 Conflict (Operação em curso)
 
-🛡️ Controle de acesso por perfil (Admin / Customer)
+    Note over A, DB: Processamento Request 1
+    A->>DB: Iniciar Transação ACID
+    DB->>DB: Baixa Estoque + Criar Pedido
+    A->>DB: Commit Transação
+    A-->>C: 201 Created (Sucesso)
+    A->>R: Liberar Lock / Cachear Resultado
 
-🔐 Senhas criptografadas com Bcrypt
+### 🧪 Suíte de Testes Profissional
 
-⚙️ Validação de variáveis de ambiente no boot
+- **Testes de Integração:** Validando o fluxo completo com banco de dados em memória.
+- **Testes de Estresse:** Simulação de múltiplas requisições simultâneas para validar concorrência.
+- **Segurança (Anti-IDOR):** Testes específicos que garantem que um usuário não consiga acessar dados de terceiros.
 
-🏗️ Estrutura do Projeto
-src/
- ├── controllers   → Camada HTTP (req/res)
- ├── services      → Regras de negócio
- ├── repositories  → Acesso ao banco
- ├── models        → Schemas Mongoose
- ├── routes        → Registro de rotas
- ├── plugins       → Plugins do Fastify
- ├── events        → Event Bus da aplicação
- ├── scripts       → Seeds e utilitários
- └── utils         → Helpers e tratamento de erros
+---
 
-📌 Padrões Utilizados
+## 🛠️ Stack Tecnológica
 
-Repository Pattern
+| Tecnologia               | Finalidade                                                       |
+| :----------------------- | :--------------------------------------------------------------- |
+| **Node.js 22 + Fastify** | Runtime e Framework de alta performance (low overhead).          |
+| **TypeScript**           | Desenvolvimento tipado e seguro.                                 |
+| **MongoDB + Mongoose**   | Banco NoSQL com modelagem via Schemas e suporte a Transações.    |
+| **Zod**                  | Validação de esquema e contratos de dados (Type-safety runtime). |
+| **JWT + Bcrypt**         | Autenticação robusta e segurança de credenciais.                 |
+| **Melhor Envio API**     | Integração real para cotação de frete e logística.               |
+| **Docker & Compose**     | Orquestração de containers para API e Banco de Dados.            |
 
-Service Layer
+---
 
-Dependency Injection
+## 🏗️ Arquitetura e Padrões de Projeto
 
-Event Bus (arquitetura desacoplada)
+A aplicação segue os princípios de **Clean Architecture** e **SOLID**:
 
-⚙️ Funcionalidades da API
-👤 Autenticação
+- **Controllers:** Apenas manipulação de entrada e saída (REQ/RES).
+- **Services:** Toda a regra de negócio, isolada e testável.
+- **Repositories:** Abstração da camada de dados (Data Access Layer).
+- **Middlewares/Hooks:** Saneamento de dados automático e logs estruturados com **Pino**.
 
-Registro de usuário
+---
 
-Login com geração de JWT
+## 📦 Funcionalidades Principais
 
-Proteção de rotas autenticadas
+- **Gestão de Produtos:** Controle de estoque rigoroso e catálogo dinâmico.
+- **Checkout Inteligente:** Integração com **Melhor Envio** para cotação de frete em tempo real baseada em dimensões e peso.
+- **RBAC (Role Based Access Control):** Níveis de permissão distintos para `Admin` e `Customer`.
+- **Logs Estruturados:** Monitoramento de saúde e erros da API em tempo real.
 
-🛍️ Produtos
+---
+## 📊 Observabilidade e Resiliência (Logs e Diagnósticos)
 
-CRUD de produtos (Admin)
+O projeto utiliza o **Pino** para geração de logs estruturados em JSON. Durante a execução da suíte de testes ou em produção, você poderá observar logs de nível `WARN (40)` ou `ERROR (50)`.
 
-Controle de estoque
+É importante destacar que:
+- **Erros Induzidos:** Grande parte desses logs são comportamentos esperados e induzidos pelos testes de segurança e estresse.
+- **Validação de Bloqueio:** Logs de "Tentativa de acesso não autorizado" ou "BLOQUEIO RBAC" confirmam que as camadas de proteção estão interceptando acessos indevidos com sucesso.
+- **Controle de Concorrência:** Logs de erro em operações de checkout simultâneas são evidências de que o mecanismo de idempotência travou uma requisição duplicada para proteger a integridade financeira da operação.
 
-Ativação/Desativação de produtos
+ "Em um sistema resiliente, um log de erro bem rastreado é a prova de que uma falha foi prevista e contida."
+---
+## 🔧 Como Executar
 
-🛒 Carrinho
+1. **Clonar o repositório:**
 
-Adicionar item ao carrinho
+   ```bash
+   git clone https://github.com/niltonstano/taverna-reserva.git (https://github.com/niltonstano/taverna-reserva.git)
 
-Remover item
+   docker compose up -d --build
 
-Atualização automática de quantidades
-
-Cálculo de total de itens e preço
-
-📦 Pedidos (Checkout)
-
-Criação de pedido
-
-Baixa automática de estoque
-
-Cancelamento com rollback de estoque
-
-🧑‍💼 Área Admin
-
-Visualização de pedidos
-
-Gerenciamento de produtos
-
-🐳 Ambiente Completo com Docker
-
-A aplicação roda em containers isolados:
-
-Serviço	Descrição
-taverna_api	Backend Fastify
-taverna_db	MongoDB com volume persistente
-taverna_web	Frontend React servido via Nginx
-▶️ Subir tudo
-docker compose up -d --build
-
-
-API disponível em:
-
-http://localhost:8080/
-http://localhost:3333/api/v1
-
-🌱 Popular o Banco (Seed)
-
-O projeto possui um script que cria:
-
-Admin padrão
-
-Cliente de teste
-
-Catálogo inicial de vinhos
-
-docker exec -it taverna_api npx tsx src/scripts/seed-master.ts
-
-💻 Rodando Localmente (Modo Dev)
-# Instalar dependências
-npm install
-
-# Rodar em modo desenvolvimento
-npm run dev
-
-🧪 Qualidade e Confiabilidade
-
-✔ Tipagem forte em toda a aplicação
-✔ Validação de entrada em todas as rotas
-✔ Graceful Shutdown (encerra conexões com segurança)
-✔ Uso de .lean() para otimização de leitura no MongoDB
-✔ Logs estruturados para rastreabilidade em produção
-
-📈 Diferenciais do Projeto
-
-Este projeto demonstra na prática:
-
-✔ Arquitetura profissional em camadas
-✔ Separação clara de responsabilidades
-✔ Segurança aplicada em múltiplas camadas
-✔ Backend pronto para ambiente real
-✔ Organização pensada para escala
+   Acessar a documentação Swagger:
+   http://localhost:3333/docs
+````
 
 👨‍💻 Autor
-
-Nilton Alexandre Stano
-Desenvolvedor Backend
+Nilton Alexandre Stano Desenvolvedor Backend com foco em arquiteturas resilientes e performance.
 
 GitHub: https://github.com/niltonstano
+
+http://localhost:8080
+
+npm run test:manual-stress
+
+Para validar tudo: npm test
+
+Para focar em segurança/IDOR: npm run test:int
+
+Para verificar o deploy final: npm run test:e2e

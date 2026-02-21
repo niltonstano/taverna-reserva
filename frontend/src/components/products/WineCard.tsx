@@ -1,16 +1,29 @@
-import { ShoppingCart, Star } from 'lucide-react';
+import { ShoppingCart, Star, Tag } from 'lucide-react';
+import { memo, useMemo } from 'react';
+import { FALLBACK_WINE_IMAGE, resolveWineImage } from '../../components/utils/wine-images';
 
-interface Wine {
-  id?: string | number;
-  _id?: string | number;
-  name?: string;
+// --- DEFINIÇÃO DE TIPAGEM FORTE ---
+export interface Wine {
+  _id?: string;
+  id?: string;
+  name: string;
   nome?: string;
-  price?: number;
-  preco?: any;
+  type?: string;
+  wine_type?: string;
+  category?: string;
+  categoria?: string;
+  price: number;
+  preco?: number;
+  oldPrice?: number;
+  price_old?: number;
+  preco_antigo?: number;
+  emOferta?: boolean | string;
+  isOffer?: boolean;
+  pontuacao?: number | string;
+  safra?: string | number;
+  imageUrl?: string;
   image_url?: string;
-  imagem?: string;
-  origem?: string;
-  pontuacao?: number;
+  updatedAt?: string | Date;
 }
 
 interface WineCardProps {
@@ -20,122 +33,149 @@ interface WineCardProps {
   variant?: 'grid' | 'compact';
 }
 
-export function WineCard({ wine, onAction, onBuy, variant = 'grid' }: WineCardProps) {
-  // 1. Definições Básicas
-  const name = wine.name || wine.nome || 'Rótulo Premium';
-  const score = wine.pontuacao || 95;
-  const origin = wine.origem || 'Terroir Selecionado';
-  const FALLBACK_LOCAL = '/vinhos/rioja.webp';
+export const WineCard = memo(({ wine, onAction, onBuy, variant = 'grid' }: WineCardProps) => {
+  // 1. Lógica de Exibição de Categoria/Tipo
+  const wineTypeDisplay = useMemo(() => {
+    const type = String(wine.type || wine.wine_type || wine.category || wine.categoria || 'Vinho');
 
-  // 2. Tratamento de Preço
-  const rawPrice = wine.price || (typeof wine.preco === 'string' ? parseFloat(wine.preco.replace(/[^\d,]/g, '').replace(',', '.')) : wine.preco) || 0;
+    return type
+      .split(' ')
+      .map((word) => {
+        let w = word.trim();
+        const check = w.toLowerCase();
+        if (['tinto', 'branco', 'rosé', 'rose'].includes(check)) return w;
+        if (check.endsWith('s') && check.length > 3) return w.slice(0, -1);
+        return w;
+      })
+      .join(' ')
+      .toUpperCase();
+  }, [wine]);
 
-  // 3. Lógica de Imagem Corrigida
-  const dbImage = (wine.image_url || wine.imagem || '').trim();
-  let imagePath = FALLBACK_LOCAL;
+  // 2. Lógica de Nome
+  const name = useMemo(() => (wine.name || wine.nome || 'Rótulo Premium').trim(), [wine.name, wine.nome]);
 
-  if (dbImage) {
-    if (dbImage.startsWith('http')) {
-      imagePath = dbImage;
-    } else {
-      // Garante que o caminho comece com /vinhos/ e não tenha barras duplicadas
-      const cleanPath = dbImage.replace(/^\/+/, ''); // Remove barras no início se existirem
-      imagePath = cleanPath.startsWith('vinhos') ? `/${cleanPath}` : `/vinhos/${cleanPath}`;
-    }
-  }
+  // 3. Lógica de Preços e Promoção
+  const { currentPrice, oldPrice, isPromo } = useMemo(() => {
+    const price = wine.price ?? wine.preco ?? 0;
+    const old = wine.oldPrice ?? wine.price_old ?? wine.preco_antigo ?? 0;
+    const isPromoFlag = wine.emOferta === true || wine.emOferta === 'true' || wine.isOffer === true;
+
+    return {
+      currentPrice: price,
+      oldPrice: old,
+      isPromo: isPromoFlag || old > price,
+    };
+  }, [wine]);
+
+  // 4. Lógica de Imagem
+  const imagePath = useMemo(() => {
+    const path = resolveWineImage(wine);
+    const version = wine.updatedAt ? new Date(wine.updatedAt).getTime() : '1';
+    return `${path}?v=${version}`;
+  }, [wine]);
 
   // --- RENDERIZAÇÃO COMPACTA ---
   if (variant === 'compact') {
     return (
       <div
         onClick={() => onAction?.(wine)}
-        className="flex items-center gap-4 p-3 bg-zinc-900/40 border border-white/5 rounded-2xl hover:bg-zinc-800/60 transition-all cursor-pointer group"
+        className="flex items-center gap-4 p-4 bg-zinc-900/20 backdrop-blur-md border border-white/5 rounded-2xl hover:border-[#c2410c]/40 transition-all cursor-pointer group"
       >
-        <div className="w-14 h-20 bg-black/40 rounded-xl flex items-center justify-center p-2 shrink-0 overflow-hidden">
-          <img
-            src={imagePath}
-            alt={name}
-            className="h-full w-auto object-contain transition-transform group-hover:scale-110"
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = FALLBACK_LOCAL;
-            }}
-          />
+        <div className="w-12 h-16 shrink-0">
+          <img src={imagePath} alt={name} className="h-full w-full object-contain" />
         </div>
-        <div className="flex-1 overflow-hidden">
-          <h4 className="text-white font-serif italic text-sm truncate">{name}</h4>
-          <p className="text-[#c2410c] font-bold text-xs mt-1">{rawPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-[#c2410c] text-[7px] font-black tracking-[0.3em] uppercase">{wineTypeDisplay}</p>
+          <h4 className="text-white text-sm font-serif italic truncate transition-colors group-hover:text-[#c2410c]">{name}</h4>
         </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onBuy?.(wine);
-          }}
-          className="p-2 text-zinc-500 hover:text-[#c2410c]"
-        >
-          <ShoppingCart size={18} />
-        </button>
       </div>
     );
   }
 
-  // --- RENDERIZAÇÃO EM GRADE (PADRÃO) ---
+  // --- RENDERIZAÇÃO GRID (PADRÃO) ---
   return (
-    <div className="group relative flex flex-col h-full bg-[#0a0a0a] border border-white/[0.03] rounded-[45px] p-8 transition-all duration-700 hover:border-[#c2410c]/40 hover:shadow-[0_0_50px_-12px_rgba(194,65,12,0.3)]">
-      {/* Score Badge */}
-      <div className="absolute top-6 right-8 z-20">
-        <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#c2410c]/30 shadow-xl">
-          <Star size={12} className="text-[#c2410c] fill-[#c2410c]" />
-          <span className="text-white text-[11px] font-black tracking-tighter">{score} PTS</span>
+    <div className="group relative flex flex-col h-full w-full max-w-[380px] bg-zinc-950/20 backdrop-blur-xl border border-white/[0.05] rounded-[45px] p-8 transition-all duration-700 hover:border-[#c2410c]/30 hover:bg-zinc-900/40 shadow-2xl mx-auto">
+      {/* Badges */}
+      <div className="absolute top-8 left-8 right-8 flex justify-between items-center z-20">
+        <div className="min-h-[26px]">
+          {isPromo && (
+            <div className="bg-[#c2410c] px-3 py-1 rounded-full flex items-center gap-1.5 shadow-lg animate-in fade-in zoom-in duration-500">
+              <Tag size={10} className="text-white fill-white" />
+              <span className="text-white text-[9px] font-black tracking-widest uppercase">Oferta</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 bg-black/20 backdrop-blur-md px-3 py-1 rounded-full border border-white/5 ml-auto">
+          <Star size={10} className="text-[#c2410c] fill-[#c2410c]" />
+          <span className="text-white text-[10px] font-black tracking-tighter">{wine.pontuacao || 95}</span>
         </div>
       </div>
 
-      {/* Container da Garrafa */}
-      <div onClick={() => onAction?.(wine)} className="relative flex-grow flex flex-col items-center justify-center cursor-pointer min-h-[380px]">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-[#c2410c]/20 rounded-full blur-[80px] opacity-0 group-hover:opacity-100 transition-opacity duration-1000" />
-
+      {/* Imagem (Altura Fixa de Container) */}
+      <div onClick={() => onAction?.(wine)} className="relative h-[320px] flex items-center justify-center cursor-pointer mt-4 shrink-0">
         <img
           src={imagePath}
           alt={name}
-          className="relative z-10 h-[320px] w-auto object-contain drop-shadow-[0_35px_35px_rgba(0,0,0,0.8)] group-hover:scale-110 group-hover:-rotate-2 transition-all duration-700"
+          className="relative z-10 h-full w-auto object-contain transition-all duration-700 group-hover:scale-105"
           onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            target.src = FALLBACK_LOCAL;
+            (e.target as HTMLImageElement).src = FALLBACK_WINE_IMAGE;
           }}
         />
+      </div>
 
-        <div className="mt-8 text-center w-full">
-          <div className="flex items-center justify-center gap-3 text-zinc-500 text-[10px] uppercase tracking-[0.3em] font-bold mb-3">
-            <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
-            <span className="animate-in fade-in duration-1000">{origin}</span>
-            <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
-          </div>
+      {/* Conteúdo Centralizado com Alturas Mínimas para Simetria */}
+      <div className="mt-8 text-center flex-grow flex flex-col">
+        <span className="text-[10px] font-black uppercase tracking-[0.4em] text-[#c2410c]/80 mb-3 block transition-all group-hover:tracking-[0.5em] shrink-0">
+          {wineTypeDisplay}
+        </span>
 
-          <h3 className="text-white font-serif italic text-3xl leading-tight px-2 group-hover:text-[#c2410c] transition-colors duration-500 line-clamp-2">
-            {name}
-          </h3>
+        {/* h3 com altura mínima para evitar desalinhamento entre 1 e 2 linhas */}
+        <h3 className="text-zinc-100 font-serif italic text-3xl leading-tight px-2 line-clamp-2 min-h-[4.5rem] flex items-center justify-center transition-all duration-500 group-hover:text-[#c2410c] group-hover:[text-shadow:0_0_20px_rgba(194,65,12,0.2)]">
+          {name}
+        </h3>
+
+        {/* Safra com container fixo para não "pular" o footer */}
+        <div className="mt-4 min-h-[32px] flex items-center justify-center">
+          {wine.safra && (
+            <div className="opacity-40 group-hover:opacity-100 transition-opacity">
+              <span className="text-zinc-400 text-[9px] uppercase tracking-[0.3em] font-bold border border-white/10 px-3 py-1 rounded-full group-hover:border-[#c2410c]/20">
+                Safra {wine.safra}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Footer de Ação */}
-      <div
-        onClick={(e) => {
-          e.stopPropagation();
-          onBuy?.(wine);
-        }}
-        className="mt-8 pt-6 border-t border-white/[0.05] cursor-pointer"
-      >
-        <div className="flex items-center justify-between group/price">
+      {/* Footer / Preço e Compra */}
+      <div className="mt-10 pt-6 border-t border-white/[0.05] shrink-0">
+        <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <span className="text-zinc-600 text-[9px] uppercase tracking-[0.2em] font-bold">Investimento</span>
-            <span className="text-white font-serif text-2xl tracking-tight mt-0.5">
-              {rawPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            <div className="min-h-[16px]">
+              {isPromo && (
+                <span className="text-zinc-600 text-[10px] line-through block">
+                  {oldPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </span>
+              )}
+            </div>
+            <span className="text-white font-serif text-2xl tracking-tight transition-all group-hover:scale-105 origin-left">
+              {currentPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
             </span>
           </div>
-          <div className="w-14 h-14 rounded-full bg-white/[0.03] border border-white/5 flex items-center justify-center group-hover/price:bg-[#c2410c] group-hover/price:border-[#c2410c] transition-all duration-500 shadow-2xl">
-            <ShoppingCart size={20} className="text-white group-hover/price:scale-110 transition-transform" />
-          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onBuy?.(wine);
+            }}
+            className="w-14 h-14 rounded-2xl bg-white/[0.05] border border-white/10 flex items-center justify-center hover:bg-[#c2410c] hover:border-[#c2410c] hover:shadow-[0_0_20px_rgba(194,65,12,0.4)] transition-all active:scale-90"
+          >
+            <ShoppingCart size={20} className="text-white transition-transform group-hover:scale-110" />
+          </button>
         </div>
       </div>
     </div>
   );
-}
+});
+
+WineCard.displayName = 'WineCard';

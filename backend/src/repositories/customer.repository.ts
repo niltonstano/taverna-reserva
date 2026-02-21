@@ -1,68 +1,77 @@
-import { CustomerModel, ICustomerData } from "../models/customer.model.js";
+// repositories/customer.repository.ts
+import { CustomerModel, ICustomer } from "../models/customer.model.js";
+
+export interface PaginatedCustomers {
+  customers: any[];
+  total: number;
+}
 
 export class CustomerRepository {
   /**
-   * ✅ Versão Produção: Busca paginada com ordenação
-   * @param skip Número de registros a pular
-   * @param limit Número de registros a retornar
+   * ✅ Criação: Normaliza e salva.
+   */
+  public async create(data: Partial<ICustomer>): Promise<ICustomer> {
+    return await CustomerModel.create({
+      ...data,
+      email: data.email?.toLowerCase().trim(),
+    });
+  }
+
+  /**
+   * ✅ Login: Força a vinda da senha para validação do bcrypt.
+   */
+  public async findByEmail(email: string) {
+    return await CustomerModel.findOne({
+      email: email.toLowerCase().trim(),
+    })
+      .select("+password")
+      .exec();
+  }
+
+  /**
+   * ✅ Busca por ID: Otimizada com lean.
+   */
+  public async findById(id: string) {
+    return await CustomerModel.findById(id, "-password -__v").lean().exec();
+  }
+
+  /**
+   * ✅ Listagem Sem Paginação: Alta performance.
+   */
+  public async findAllNoPagination(): Promise<any[]> {
+    return await CustomerModel.find({}, "-password -__v")
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+  }
+
+  /**
+   * ✅ Listagem Paginada: Processamento paralelo para velocidade.
    */
   public async findAll(
-    skip: number = 0,
-    limit: number = 50,
-  ): Promise<ICustomerData[]> {
-    return (await CustomerModel.find()
-      .sort({ createdAt: -1 }) // Mais recentes primeiro
-      .skip(skip)
-      .limit(limit)
-      .lean() // Performance: retorna POJO (Plain Old JavaScript Objects)
-      .exec()) as ICustomerData[];
+    page: number,
+    limit: number,
+  ): Promise<PaginatedCustomers> {
+    const skip = (page - 1) * limit;
+
+    const [customers, total] = await Promise.all([
+      CustomerModel.find({}, "-password -__v")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+      CustomerModel.countDocuments(),
+    ]);
+
+    return { customers, total };
   }
 
   /**
-   * Busca um cliente por e-mail, incluindo a senha (necessário para Login).
+   * ✅ Deleção.
    */
-  public async findByEmail(email: string): Promise<ICustomerData | null> {
-    return (await CustomerModel.findOne({ email })
-      .select("+password")
-      .lean()
-      .exec()) as ICustomerData | null;
-  }
-
-  /**
-   * Busca um cliente por ID.
-   */
-  public async findById(id: string): Promise<ICustomerData | null> {
-    return (await CustomerModel.findById(id)
-      .lean()
-      .exec()) as ICustomerData | null;
-  }
-
-  /**
-   * Cria um novo cliente.
-   */
-  public async create(data: Partial<ICustomerData>): Promise<ICustomerData> {
-    const customer = await CustomerModel.create(data);
-    return customer.toObject();
-  }
-
-  /**
-   * Atualiza um cliente existente por ID.
-   */
-  public async update(
-    id: string,
-    data: Partial<ICustomerData>,
-  ): Promise<ICustomerData | null> {
-    return (await CustomerModel.findByIdAndUpdate(id, data, { new: true })
-      .lean()
-      .exec()) as ICustomerData | null;
-  }
-
-  /**
-   * Remove um cliente do banco de dados por ID.
-   */
-  public async delete(id: string): Promise<ICustomerData | null> {
-    return (await CustomerModel.findByIdAndDelete(id)
-      .lean()
-      .exec()) as ICustomerData | null;
+  public async delete(id: string): Promise<boolean> {
+    const result = await CustomerModel.findByIdAndDelete(id).exec();
+    return !!result;
   }
 }

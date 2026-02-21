@@ -1,12 +1,14 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 
-export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
-  try {
-    // O jwtVerify decodifica o token e joga os dados em request.user
-    await request.jwtVerify();
-  } catch (err) {
-    return reply.status(401).send({ 
-      message: "Acesso negado. Token inválido ou expirado." 
-    });
-  }
+/**
+ * 🔐 Middleware de Autenticação
+ * Delegamos o tratamento de erro para o Error Handler Global.
+ * O '_' antes de reply indica ao TypeScript que o parâmetro é aceito pela
+ * assinatura do Fastify, mas não será usado aqui.
+ */
+export async function authenticate(
+  request: FastifyRequest,
+  _reply: FastifyReply,
+) {
+  await request.jwtVerify();
 }

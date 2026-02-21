@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Footer } from '../../components/common/Footer';
 import { useAuth } from '../../context/AuthContext';
-import { useCart } from '../../context/CartContext';
+import { useCart, useCartActions } from '../../context/CartContext';
 import { api } from '../../services/api';
 
 interface Product {
@@ -22,13 +22,17 @@ export function Dashboard() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, signOut } = useAuth();
-  const { addToCart } = useCart();
+  const { cartCount } = useCart();
+  const { addToCart } = useCartActions();
+
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadProductDetails() {
+      // Prioriza o ID vindo do state do router
       const productId = location.state?.productId;
+
       if (!productId) {
         setLoading(false);
         return;
@@ -36,6 +40,7 @@ export function Dashboard() {
 
       try {
         const response = await api.get(`/products/${productId}`);
+        // Verifica se o dado está dentro de 'data' ou na raiz da resposta
         const data = response.data.data || response.data;
         setProduct(data);
       } catch (err) {
@@ -52,17 +57,15 @@ export function Dashboard() {
       addToCart({
         ...product,
         id: product._id,
-        nome: product.name,
-        preco: product.price,
         quantity: 1,
-      } as any);
+      });
       navigate('/cart');
     }
   };
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col relative overflow-hidden">
-      {/* BACKGROUND IMERSIVO PADRONIZADO */}
+      {/* BACKGROUND */}
       <div className="fixed inset-0 z-0">
         <img src="/bg/adega3.webp" className="w-full h-full object-cover grayscale opacity-[0.15] brightness-110" alt="Background" />
         <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]" />
@@ -74,17 +77,29 @@ export function Dashboard() {
           <ArrowLeft size={18} className="text-[#c2410c] group-hover:-translate-x-1 transition-transform" />
           <span className="tracking-[0.3em] text-[10px] uppercase font-cinzel">Voltar à Adega</span>
         </div>
+
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
           <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
           <span className="font-cinzel text-[10px] tracking-[0.5em] uppercase">Taverna Member</span>
           <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
         </div>
-        <button
-          onClick={signOut}
-          className="text-zinc-500 hover:text-white transition-colors flex items-center gap-2 text-[10px] uppercase tracking-widest font-black"
-        >
-          Sair <LogOut size={14} />
-        </button>
+
+        <div className="flex items-center gap-6">
+          <button onClick={() => navigate('/cart')} className="relative p-2 text-white hover:text-[#c2410c] transition-colors">
+            <ShoppingBag size={20} />
+            {cartCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-[#c2410c] text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {cartCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={signOut}
+            className="text-zinc-500 hover:text-white transition-colors flex items-center gap-2 text-[10px] uppercase tracking-widest font-black"
+          >
+            Sair <LogOut size={14} />
+          </button>
+        </div>
       </nav>
 
       <main className="max-w-7xl mx-auto px-8 py-12 relative z-10 flex-grow w-full">
@@ -106,7 +121,7 @@ export function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
-            {/* GARRAFA COM ANIMAÇÃO */}
+            {/* DISPLAY DO PRODUTO */}
             <div className="relative flex justify-center items-center group animate-in fade-in slide-in-from-left-12 duration-1000">
               <div className="absolute w-[450px] h-[450px] bg-[#c2410c]/10 rounded-full blur-[120px] -z-10 animate-pulse" />
               <img
@@ -117,38 +132,43 @@ export function Dashboard() {
               <div className="absolute top-0 right-4 lg:right-20">
                 <div className="bg-black/60 backdrop-blur-xl border border-[#c2410c]/40 p-6 rounded-full flex flex-col items-center justify-center shadow-2xl animate-in zoom-in duration-1000 delay-500">
                   <Star size={16} fill="#c2410c" className="text-[#c2410c] mb-1" />
-                  <span className="text-2xl font-black italic">{product.pontuacao || 98}</span>
+                  <span className="text-2xl font-black italic">{product.pontuacao || '95'}</span>
                   <span className="text-[8px] uppercase font-cinzel">PTS</span>
                 </div>
               </div>
             </div>
 
-            {/* DESCRIÇÃO COM EFEITO NAS FONTES */}
+            {/* DETALHES COM FALLBACKS */}
             <div className="space-y-10">
-              <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000 fill-mode-both">
+              <div className="animate-in fade-in slide-in-from-bottom-8 duration-1000">
                 <span className="text-[#c2410c] font-cinzel text-xs tracking-[0.5em] uppercase font-black">
-                  Exclusividade {product.uva || 'Vinho Premium'} • Safra {product.safra || 'Especial'}
+                  {/* Fallbacks aqui se as propriedades vierem vazias */}
+                  Exclusividade {product.uva || 'Reserva'} • Safra {product.safra || 'N/A'}
                 </span>
-                <h1 className="text-6xl md:text-8xl font-serif italic text-white mt-4 leading-[0.9] tracking-tighter">{product.name}</h1>
+                <h1 className="text-6xl md:text-8xl font-serif italic text-white mt-4 leading-[0.9] tracking-tighter">
+                  {product.name || 'Vinho Taverna'}
+                </h1>
                 <div className="flex items-center gap-3 mt-8">
                   <div className="w-1 h-1 rotate-45 bg-[#c2410c]" />
                   <p className="text-zinc-500 text-xs font-cinzel uppercase tracking-[0.4em]">Terroir: {product.origem || 'Internacional'}</p>
                 </div>
               </div>
 
-              <div className="bg-white/[0.02] border border-white/5 p-10 rounded-[50px] backdrop-blur-md relative overflow-hidden animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-200 fill-mode-both">
+              <div className="bg-white/[0.02] border border-white/5 p-10 rounded-[50px] backdrop-blur-md relative overflow-hidden animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-200">
                 <div className="absolute top-0 right-0 p-4 opacity-5">
                   <Wine size={100} />
                 </div>
                 <h3 className="font-cinzel text-[10px] tracking-[0.3em] text-[#c2410c] uppercase mb-6 font-black">Perfil Sensorial</h3>
-                <p className="text-zinc-200 text-xl leading-relaxed italic font-serif">"{product.description}"</p>
+                <p className="text-zinc-200 text-xl leading-relaxed italic font-serif">
+                  "{product.description || 'Uma experiência sensorial única selecionada por nossos especialistas.'}"
+                </p>
               </div>
 
-              <div className="flex flex-col md:flex-row items-center gap-8 pt-4 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-400 fill-mode-both">
+              <div className="flex flex-col md:flex-row items-center gap-8 pt-4 animate-in fade-in slide-in-from-bottom-12 duration-1000 delay-400">
                 <div className="text-center md:text-left min-w-[200px]">
                   <p className="text-zinc-600 text-[9px] uppercase tracking-[0.3em] mb-1 font-cinzel">Investimento Membro</p>
                   <p className="text-5xl font-serif italic text-white">
-                    {Number(product.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {Number(product.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </p>
                 </div>
 

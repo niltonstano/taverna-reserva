@@ -1,84 +1,87 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { AddItemBody, RemoveItemParams } from "../routes/cart.routes.js";
+import { Types } from "mongoose";
 import { CartService } from "../services/cart.service.js";
+import {
+  CartItemBody,
+  CartParams,
+  ICartController,
+} from "../types/cart.type.js";
+import { UnauthorizedError } from "../utils/errors.js";
 
-interface ApiError extends Error {
-  statusCode?: number;
-}
-
-export class CartController {
+/**
+ * CartController
+ * Gerencia as operações do carrinho de compras.
+ * Os erros são capturados pelo Global Error Handler.
+ */
+export class CartController implements ICartController {
   constructor(private readonly cartService: CartService) {}
 
-  getCart = async (
-    request: FastifyRequest,
-    reply: FastifyReply
-  ): Promise<void> => {
-    try {
-      const cart = await this.cartService.getCartByUserId(request.user.id);
-      return void reply.status(200).send(cart);
-    } catch (error) {
-      this.handleError(request, reply, error);
+  /**
+   * Valida se o ID do usuário vindo do token é um ObjectId válido.
+   */
+  private validateUser(userId: string): void {
+    if (!userId || !Types.ObjectId.isValid(userId)) {
+      throw new UnauthorizedError("Usuário não autenticado ou ID inválido");
     }
+  }
+
+  getCart = async (request: FastifyRequest, reply: FastifyReply) => {
+    const userId = request.user.id;
+    this.validateUser(userId);
+
+    const cart = await this.cartService.getCartByUserId(userId);
+
+    return reply.status(200).send({
+      success: true,
+      data: cart,
+    });
   };
 
   addItem = async (
-    request: FastifyRequest<{ Body: AddItemBody }>,
-    reply: FastifyReply
-  ): Promise<void> => {
-    try {
-      const { productId, quantity } = request.body;
-      const cart = await this.cartService.addItem(
-        request.user.id,
-        productId,
-        quantity
-      );
-      return void reply
-        .status(201)
-        .send({ success: true, message: "Item adicionado", cart });
-    } catch (error) {
-      this.handleError(request, reply, error);
-    }
+    request: FastifyRequest<{ Body: CartItemBody }>,
+    reply: FastifyReply,
+  ) => {
+    const userId = request.user.id;
+    this.validateUser(userId);
+
+    const { productId, quantity } = request.body;
+    const cart = await this.cartService.addItem(userId, productId, quantity);
+
+    return reply.status(200).send({
+      success: true,
+      message: "Carrinho atualizado.",
+      data: cart,
+    });
   };
 
   removeItem = async (
-    request: FastifyRequest<{ Params: RemoveItemParams }>,
-    reply: FastifyReply
-  ): Promise<void> => {
-    try {
-      const cart = await this.cartService.removeItem(
-        request.user.id,
-        request.params.productId
-      );
-      return void reply
-        .status(200)
-        .send({ success: true, message: "Item removido", cart });
-    } catch (error) {
-      this.handleError(request, reply, error);
-    }
-  };
-
-  clearCart = async (
-    request: FastifyRequest,
-    reply: FastifyReply
-  ): Promise<void> => {
-    try {
-      await this.cartService.clearCart(request.user.id);
-      return void reply
-        .status(200)
-        .send({ success: true, message: "Carrinho esvaziado" });
-    } catch (error) {
-      this.handleError(request, reply, error);
-    }
-  };
-
-  private handleError(
-    request: FastifyRequest,
+    request: FastifyRequest<{ Params: CartParams }>,
     reply: FastifyReply,
-    error: unknown
-  ): void {
-    request.log.error(error);
-    const statusCode = (error as ApiError)?.statusCode || 400;
-    const message = error instanceof Error ? error.message : "Erro inesperado";
-    return void reply.status(statusCode).send({ success: false, message });
-  }
+  ) => {
+    const userId = request.user.id;
+    this.validateUser(userId);
+
+    const { productId } = request.params;
+    const cart = await this.cartService.removeItem(userId, productId);
+
+    return reply.status(200).send({
+      success: true,
+      message: "Item removido.",
+      data: cart,
+    });
+  };
+
+  clearCart = async (request: FastifyRequest, reply: FastifyReply) => {
+    const userId = request.user.id;
+    this.validateUser(userId);
+
+    await this.cartService.clearCart(userId);
+
+    return reply.status(200).send({
+      success: true,
+      message: "Carrinho esvaziado.",
+    });
+  };
 }
+
+export default CartController;

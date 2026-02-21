@@ -1,5 +1,4 @@
 import jwt, { FastifyJWTOptions } from "@fastify/jwt";
-import { FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { env } from "../config/env.js";
 
@@ -13,27 +12,16 @@ export default fp(async (app) => {
       authorizationTokenInvalid: "Token inválido",
     },
     sign: {
-      expiresIn: "2h",
+      expiresIn: "7d", // Recomendo um tempo maior ou uso de Refresh Tokens em produção
     },
   };
 
-  // Registra o plugin oficial
+  // 1. Registra o plugin oficial do Fastify
   app.register(jwt, jwtOptions);
 
-  // Decora a instância do app com o método de autenticação
-  app.decorate(
-    "authenticate",
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        await request.jwtVerify();
-      } catch (err) {
-        app.log.warn(`Tentativa de acesso não autorizado: ${request.ip}`);
-        return reply.status(401).send({
-          success: false,
-          message: "Acesso negado: Credenciais inválidas",
-          statusCode: 401,
-        });
-      }
-    }
-  );
+  /**
+   * NOTA: Não decoramos o 'authenticate' aqui dentro se você já o exportou
+   * de um arquivo separado (como fizemos no passo anterior).
+   * Isso evita duplicidade e mantém a lógica de auth isolada.
+   */
 });

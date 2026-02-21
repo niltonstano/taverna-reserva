@@ -1,4 +1,4 @@
-import { Loader2, LogIn, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, Loader2, LogIn, UserPlus } from 'lucide-react'; // Adicionado Eye e EyeOff
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Footer } from '../../components/common/Footer';
@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 export function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // ✅ Estado para o olhinho
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -62,14 +63,26 @@ export function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
-              <input
-                type="password"
-                placeholder="Senha"
-                required
-                className="w-full bg-white/5 border border-white/10 py-4 px-6 rounded-full text-white placeholder:text-zinc-600 focus:border-[#c2410c] transition-all outline-none"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+
+              {/* ✅ Campo de Senha com Olhinho */}
+              <div className="relative flex items-center">
+                <input
+                  type={showPassword ? 'text' : 'password'} // Alterna entre text e password
+                  placeholder="Senha"
+                  required
+                  className="w-full bg-white/5 border border-white/10 py-4 pl-6 pr-14 rounded-full text-white placeholder:text-zinc-600 focus:border-[#c2410c] transition-all outline-none"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-5 text-zinc-500 hover:text-[#c2410c] transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
 
               <button
                 type="submit"
@@ -94,7 +107,6 @@ export function Login() {
         </div>
       </div>
 
-      {/* ✅ Footer adicionado com z-index para ficar sobre o bg */}
       <div className="relative z-10">
         <Footer />
       </div>

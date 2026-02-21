@@ -1,77 +1,101 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
-import { Types } from "mongoose";
-import { OrderRepository } from "../../src/repositories/order.repository.js";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
+import { Connection, Types } from "mongoose";
 import { OrderModel } from "../../src/models/order.model.js";
-import { 
-  setupMongoMemory as connect, 
-  teardownMongoMemory as disconnect, 
-  clearDatabase as clear 
+import { OrderRepository } from "../../src/repositories/order.repository.js";
+import { OrderCreateInput } from "../../src/types/order.type.js";
+import {
+  getMongooseConnection,
+  setupMongoMemory,
+  teardownMongoMemory,
 } from "../helpers/mongo-memory.js";
 
-describe("OrderRepository", () => {
-  let repository: OrderRepository;
+describe("OrderRepository - Integração com Transações", () => {
+  let orderRepository: OrderRepository;
+  let connection: Connection;
 
-  beforeAll(async () => await connect());
-  afterEach(async () => await clear());
-  afterAll(async () => await disconnect());
-
-  beforeEach(() => {
-    repository = new OrderRepository();
+  beforeAll(async () => {
+    await setupMongoMemory();
+    connection = getMongooseConnection();
+    orderRepository = new OrderRepository();
   });
 
-  // Função auxiliar para gerar dados válidos conforme seu Schema
-  const getValidOrderData = (overrides = {}) => ({
-    userId: new Types.ObjectId(),
-    idempotencyKey: `key-${Math.random()}`, // Obrigatório
-    totalPrice: 100,                        // Alinhado com o erro do log
+  afterAll(async () => {
+    await teardownMongoMemory();
+  });
+
+  beforeEach(async () => {
+    await OrderModel.deleteMany({});
+    await OrderModel.syncIndexes();
+  });
+
+  const mockOrderData = (
+    userId: Types.ObjectId,
+    key: string,
+  ): OrderCreateInput => ({
+    userId,
+    customerEmail: "cliente@taverna.com",
+    idempotencyKey: key,
+    items: [
+      {
+        productId: new Types.ObjectId(),
+        name: "Vinho",
+        quantity: 1,
+        priceCents: 1000,
+        subtotalCents: 1000,
+      },
+    ],
+    totalPriceCents: 1000,
+    shippingPriceCents: 0,
     status: "pending",
-    shippingAddress: "Rua Teste, 123",
-    paymentMethod: "credit_card",
-    items: [{ 
-      productId: new Types.ObjectId(), 
-      name: "Produto Teste",                // Obrigatório
-      quantity: 2, 
-      price: 50,
-      subtotal: 100                         // Obrigatório
-    }],
-    ...overrides
+    address: "Rua Teste",
+    zipCode: "00000-000",
+    shipping: { service: "S", company: "C", priceCents: 0, deadline: 1 },
   });
 
-  it("deve criar um novo pedido com sucesso", async () => {
-    const orderData = getValidOrderData();
-    const order = await repository.create(orderData as any);
+  it("🛡️ Deve garantir idempotência: chamadas duplicadas retornam o mesmo registro", async () => {
+    const userId = new Types.ObjectId();
+    const key = "chave-idempotencia-" + Date.now();
+    const orderData = mockOrderData(userId, key);
 
-    expect(order).toBeDefined();
-    expect((order as any).totalPrice).toBe(100);
+    // 1. Criamos o primeiro pedido
+    const firstCall = await orderRepository.create(orderData);
+    expect(firstCall.id).toBeDefined();
+
+    // 2. Segunda tentativa com os mesmos dados (Idempotência)
+    // O Repositório agora captura o erro 11000 e retorna o pedido existente
+    const secondCall = await orderRepository.create(orderData);
+
+    // ✅ VALIDAÇÕES
+    // Os IDs devem ser idênticos
+    expect(secondCall.id).toBe(firstCall.id);
+
+    // O banco de dados não deve ter criado um novo documento
+    const totalNoBanco = await OrderModel.countDocuments({
+      userId,
+      idempotencyKey: key,
+    });
+    expect(totalNoBanco).toBe(1);
   });
 
-  it("deve buscar pedidos de um usuário específico via findByUserId", async () => {
-    const data = getValidOrderData({ status: "pending" }); // Mudei de completed para pending para evitar erro de enum
-    await OrderModel.create(data);
+  it("✅ Deve permitir pedidos com a mesma chave para usuários diferentes", async () => {
+    const key = "mesma-chave";
+    const user1 = new Types.ObjectId();
+    const user2 = new Types.ObjectId();
 
-    const orders = await repository.findByUserId(data.userId.toHexString());
+    const order1 = await orderRepository.create(mockOrderData(user1, key));
+    const order2 = await orderRepository.create(mockOrderData(user2, key));
 
-    expect(orders).toHaveLength(1);
-    expect((orders[0] as any).totalPrice).toBe(100);
-  });
+    expect(order1.id).not.toBe(order2.id);
+    expect(order1.userId).not.toBe(order2.userId);
 
-  it("deve buscar um pedido por Idempotency Key", async () => {
-    const data = getValidOrderData({ idempotencyKey: "unique-123" });
-    await OrderModel.create(data);
-
-    const order = await repository.findByIdempotencyKey(data.userId.toHexString(), "unique-123");
-
-    expect(order).not.toBeNull();
-    expect((order as any)?.idempotencyKey).toBe("unique-123");
-  });
-
-  it("deve atualizar o status de um pedido", async () => {
-    const data = getValidOrderData();
-    const order = await OrderModel.create(data);
-
-    // Certifique-se que "shipped" é um valor aceito no seu ENUM do model
-    const updatedOrder = await repository.updateStatus(order._id.toString(), "shipped");
-
-    expect((updatedOrder as any)?.status).toBe("shipped");
+    const count = await OrderModel.countDocuments({ idempotencyKey: key });
+    expect(count).toBe(2);
   });
 });

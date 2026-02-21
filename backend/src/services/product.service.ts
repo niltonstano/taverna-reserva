@@ -1,150 +1,126 @@
-import { IProductLean } from "../interfaces/product.interface.js";
 import { ProductRepository } from "../repositories/product.repository.js";
-
-interface PaginatedProducts {
-  products: IProductLean[];
-  total: number;
-}
+import { IProduct, ProductPaginationResult } from "../types/product.js";
+import { BadRequestError, NotFoundError } from "../utils/errors.js";
 
 export class ProductService {
   constructor(private readonly productRepository: ProductRepository) {}
 
+  /**
+   * ✅ Normalizador de Categorias: Garante padrão "Vinho", "Espumante" etc.
+   */
+  private normalizeCategory(category?: string): string {
+    if (!category) return "Geral";
+    const trimmed = category.trim();
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+  }
+
   async list(
     page: number,
     limit: number,
-    searchTerm?: string,
-  ): Promise<PaginatedProducts> {
-    const { data, total } = await this.productRepository.findPaginated(
-      page,
-      limit,
-      searchTerm,
+    search?: string,
+  ): Promise<ProductPaginationResult> {
+    const safePage = Math.max(1, Math.floor(page));
+    const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+
+    const { data, total, pages } = await this.productRepository.findPaginated(
+      safePage,
+      safeLimit,
+      search,
     );
 
-    return { products: data, total };
+    return {
+      products: data.map((p) => this.mapToProduct(p)),
+      total: total || 0,
+      pages: pages || 0,
+    };
   }
 
-  async findById(id: string): Promise<IProductLean> {
+  async findById(id: string): Promise<IProduct> {
     const product = await this.productRepository.findById(id);
-    if (!product) throw new Error("Produto não encontrado.");
-    return product;
+    if (!product) throw new NotFoundError("Produto não localizado.");
+    return this.mapToProduct(product);
   }
 
-  async create(data: Partial<IProductLean>): Promise<IProductLean> {
-    return await this.productRepository.create(data);
+  /**
+   * ✨ Criação com Normalização
+   */
+  async create(data: Partial<Omit<IProduct, "_id">>): Promise<IProduct> {
+    const productData = {
+      ...data,
+      category: this.normalizeCategory(data.category),
+      name: data.name?.trim(),
+    };
+
+    const created = await this.productRepository.create(productData);
+    return this.mapToProduct(created);
   }
 
-  async update(id: string, data: Partial<IProductLean>): Promise<IProductLean> {
-    const existing = await this.productRepository.findById(id);
-    if (!existing) throw new Error("Produto não encontrado para atualização.");
+  /**
+   * 🔄 Atualização Parcial com Re-normalização
+   */
+  async update(
+    id: string,
+    data: Partial<Omit<IProduct, "_id">>,
+  ): Promise<IProduct> {
+    const updateData = { ...data };
 
-    const updated = await this.productRepository.update(id, data);
-    if (!updated) throw new Error("Erro ao atualizar produto.");
+    if (data.category) {
+      updateData.category = this.normalizeCategory(data.category);
+    }
 
-    return updated;
+    const updated = await this.productRepository.update(id, updateData);
+    if (!updated) throw new NotFoundError("Produto não encontrado.");
+
+    return this.mapToProduct(updated);
   }
 
+  /**
+   * 🗑️ Deleção com Regra de Negócio (Safety First)
+   */
   async delete(id: string): Promise<boolean> {
     const product = await this.productRepository.findById(id);
+    if (!product) throw new NotFoundError("Produto não encontrado.");
 
-    if (!product) {
-      throw new Error("Produto não encontrado para exclusão.");
+    // Impede deletar produtos que ainda têm estoque (evita furos em pedidos)
+    if (Number(product.stock) > 0) {
+      throw new BadRequestError(
+        `Impossível remover: O produto '${product.name}' possui ${product.stock} unidades em estoque.`,
+      );
     }
 
-    if (product.stock > 0) {
-      throw new Error("Não é possível deletar produto com estoque ativo.");
-    }
-
-    return await this.productRepository.delete(id);
+    const success = await this.productRepository.delete(id);
+    return !!success;
   }
 
-  async seed(): Promise<{ imported: number }> {
-    const initialProducts: Partial<IProductLean>[] = [
-      {
-        name: "Melini Chianti Riserva",
-        safra: "2021",
-        origem: "Toscana, Itália",
-        price: 189.0,
-        image_url: "/vinhos/melini-chianti.webp",
-        category: "Tinto",
-        uva: "Sangiovese",
-        description: "Um clássico da Toscana com notas de cereja madura.",
-        pontuacao: 92,
-        active: true,
-        stock: 15,
-        emOferta: false,
-      },
-      {
-        name: "Château Teyssier Grand Cru",
-        safra: "2018",
-        origem: "Bordeaux, França",
-        price: 890.0,
-        image_url: "/vinhos/chateau-teyssier.webp",
-        category: "Tinto",
-        uva: "Merlot",
-        description: "Elegância francesa com taninos sedosos.",
-        pontuacao: 96,
-        emOferta: true,
-        active: true,
-        stock: 8,
-      },
-      {
-        name: "Cono Sur Reserva Especial",
-        safra: "2021",
-        origem: "Casablanca, Chile",
-        price: 198.0,
-        image_url: "/vinhos/cono-sur.webp",
-        category: "Branco",
-        uva: "Chardonnay",
-        description: "Frescor cítrico vibrante.",
-        pontuacao: 90,
-        emOferta: true,
-        active: true,
-        stock: 20,
-      },
-      {
-        name: "Rioja Reserva Especial",
-        safra: "2016",
-        origem: "Rioja, Espanha",
-        price: 420.0,
-        image_url: "/vinhos/rioja.webp",
-        category: "Tinto",
-        uva: "Tempranillo",
-        description: "Potente e clássico, notas de baunilha.",
-        pontuacao: 95,
-        active: true,
-        stock: 12,
-        emOferta: false,
-      },
-      {
-        name: "Don David Reserve",
-        safra: "2020",
-        origem: "Salta, Argentina",
-        price: 245.0,
-        image_url: "/vinhos/don-davud.webp",
-        category: "Tinto",
-        uva: "Malbec",
-        description: "Vinho de altitude com notas de ameixa.",
-        pontuacao: 91,
-        emOferta: true,
-        active: true,
-        stock: 25,
-      },
-      {
-        name: "Bourgogne Pinot Noir",
-        safra: "2020",
-        origem: "Borgonha, França",
-        price: 580.0,
-        image_url: "/vinhos/bourgogne.webp",
-        category: "Tinto",
-        uva: "Pinot Noir",
-        description: "A delicadeza da Borgonha.",
-        pontuacao: 92,
-        active: true,
-        stock: 10,
-        emOferta: false,
-      },
-    ];
+  /**
+   * 🛠️ Data Mapper Pattern (Sanitização de saída)
+   */
+  private mapToProduct(doc: any): IProduct {
+    // Converte documento Mongoose (ou objeto puro) para contrato IProduct
+    const raw = doc.toObject ? doc.toObject() : doc;
 
-    return await this.productRepository.seed(initialProducts);
+    return {
+      _id: (raw._id || raw.id)?.toString(),
+      name: raw.name || "Sem Nome",
+      description: raw.description || "",
+      price: Number(raw.price) || 0,
+      stock: Number(raw.stock) || 0,
+      category: raw.category || "Geral",
+      imageUrl: raw.imageUrl || "",
+      active: Boolean(raw.active),
+      weight: Number(raw.weight) || 0,
+      dimensions: {
+        width: Number(raw.dimensions?.width) || 0,
+        height: Number(raw.dimensions?.height) || 0,
+        length: Number(raw.dimensions?.length) || 0,
+      },
+      emOferta: Boolean(raw.emOferta),
+      safra: raw.safra || "N/V",
+      uva: raw.uva || "Blend",
+      origem: raw.origem || "Não Informada",
+      pontuacao: raw.pontuacao,
+      createdAt: raw.createdAt,
+      updatedAt: raw.updatedAt,
+    };
   }
 }

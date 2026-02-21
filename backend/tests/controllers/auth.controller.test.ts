@@ -1,127 +1,107 @@
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
-import { AuthController } from '../../src/controllers/auth.controller.js';
+import { beforeEach, describe, expect, it, jest } from "@jest/globals";
+import { AuthController } from "../../src/controllers/auth.controller.js";
+import { ConflictError, UnauthorizedError } from "../../src/utils/errors.js";
 
-describe("AuthController - Cobertura Total 100%", () => {
+describe("AuthController - Unidade (Cobertura Total)", () => {
   let controller: AuthController;
   let mockReq: any;
   let mockReply: any;
   let mockService: any;
 
-  const validRegistrationData = {
-    name: "Nilton Dev",
-    email: "nilton@example.com",
-    password: "Password123!",
-    confirmPassword: "Password123!"
-  };
-
-  const validLoginData = { 
-    email: "teste@teste.com", 
-    password: "Password123!" 
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new AuthController();
-    
+
     mockService = {
       registerAdmin: jest.fn(),
       registerCustomer: jest.fn(),
-      login: jest.fn()
+      login: jest.fn(),
     };
-    
-    (controller as any).authService = mockService;
+
+    controller = new AuthController(mockService as any);
 
     mockReq = {
       body: {},
-      log: { warn: jest.fn() }
+      log: { error: jest.fn() },
     };
 
     mockReply = {
       status: jest.fn().mockReturnThis(),
+      header: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
-      jwtSign: jest.fn().mockImplementation((payload: any, options: any) => "token_fake_123")
+      jwtSign: jest
+        .fn<any>()
+        .mockImplementation(() => Promise.resolve("token_fake_123")),
     };
   });
 
-  // --- Caminhos de Sucesso ---
-  
-  it("deve realizar login de ADMIN e assinar o JWT", async () => {
-    mockReq.body = validLoginData;
-    
-    mockService.login.mockImplementation(async (email: any, pass: any, type: any, signFn: any) => {
-      const token = await signFn({ id: '1', role: 'admin' });
-      return { user: { id: "1" }, token };
+  describe("🏗️ Instanciação", () => {
+    it("✅ deve instanciar com o serviço padrão", () => {
+      const defaultController = new AuthController();
+      expect(defaultController).toBeInstanceOf(AuthController);
     });
-    
-    await controller.adminLogin(mockReq, mockReply);
-    
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ 
-      success: true, 
-      token: "token_fake_123" 
-    }));
   });
 
-  it("deve realizar login de CUSTOMER com sucesso", async () => {
-    mockReq.body = validLoginData;
-    mockService.login.mockImplementation(async (email: any, pass: any, type: any, signFn: any) => {
-      const token = await signFn({ id: '2', role: 'customer' });
-      return { user: { id: "2" }, token };
+  describe("🔑 Fluxo de Login", () => {
+    it("✅ deve realizar login de cliente e assinar JWT", async () => {
+      mockReq.body = { email: "customer@test.com", password: "123" };
+
+      mockService.login.mockImplementation(
+        async (e: any, p: any, t: any, sign: any) => {
+          const token = await sign({ id: "user123", role: "customer" });
+          return { token, user: { id: "user123", name: "Teste" } };
+        },
+      );
+
+      await controller.customerLogin(mockReq, mockReply);
+
+      expect(mockReply.status).toHaveBeenCalledWith(200);
+      expect(mockReply.jwtSign).toHaveBeenCalled();
+      expect(mockReply.send).toHaveBeenCalledWith(
+        expect.objectContaining({ token: "token_fake_123" }),
+      );
     });
-    
-    await controller.customerLogin(mockReq, mockReply);
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+
+    it("✅ deve realizar login administrativo com headers de segurança", async () => {
+      mockReq.body = { email: "admin@test.com", password: "123" };
+      mockService.login.mockResolvedValue({
+        token: "admin_tk",
+        user: { id: "admin1", name: "Admin" },
+      });
+
+      await controller.adminLogin(mockReq, mockReply);
+
+      expect(mockReply.header).toHaveBeenCalledWith(
+        "Cache-Control",
+        "no-store",
+      );
+      expect(mockReply.status).toHaveBeenCalledWith(200);
+    });
+
+    it("❌ deve repassar erro de credenciais", async () => {
+      mockService.login.mockRejectedValue(new UnauthorizedError("Invalido"));
+      await expect(
+        controller.customerLogin(mockReq, mockReply),
+      ).rejects.toThrow(UnauthorizedError);
+    });
   });
 
-  it("deve registrar CUSTOMER com sucesso", async () => {
-    mockReq.body = validRegistrationData;
-    mockService.registerCustomer.mockResolvedValue({ id: "cust-123" });
-    
-    await controller.customerRegister(mockReq, mockReply);
-    
-    expect(mockReply.status).toHaveBeenCalledWith(201);
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
-  });
+  describe("📝 Fluxo de Registro", () => {
+    it("✅ deve registrar cliente e retornar 201", async () => {
+      mockService.registerCustomer.mockResolvedValue({
+        id: "new_c",
+        name: "Novo",
+      });
+      await controller.customerRegister(mockReq, mockReply);
+      expect(mockReply.status).toHaveBeenCalledWith(201);
+    });
 
-  // --- Caminhos de Erro e Validação ---
-
-  it("deve retornar 400 se o corpo do login estiver incompleto", async () => {
-    mockReq.body = { email: "invalido" };
-    await controller.customerLogin(mockReq, mockReply);
-    expect(mockReply.status).toHaveBeenCalledWith(400);
-  });
-
-  it("deve tratar erro de credenciais inválidas (401) no login", async () => {
-    mockReq.body = validLoginData;
-    mockService.login.mockRejectedValue(new Error("Invalid credentials"));
-    
-    await controller.adminLogin(mockReq, mockReply);
-    
-    expect(mockReply.status).toHaveBeenCalledWith(401);
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
-  });
-
-  it("deve tratar erro genérico (string) no registro de customer", async () => {
-    mockReq.body = validRegistrationData;
-    mockService.registerCustomer.mockRejectedValue("Email já cadastrado");
-    
-    await controller.customerRegister(mockReq, mockReply);
-    
-    expect(mockReply.status).toHaveBeenCalledWith(400);
-    expect(mockReply.send).toHaveBeenCalledWith(expect.objectContaining({ 
-      message: "Email já cadastrado" 
-    }));
-  });
-
-  it("deve testar o adminRegister com sucesso e erro Zod", async () => {
-    // Sucesso
-    mockReq.body = validRegistrationData;
-    mockService.registerAdmin.mockResolvedValue({ id: "adm-1" });
-    await controller.adminRegister(mockReq, mockReply);
-    expect(mockReply.status).toHaveBeenCalledWith(201);
-
-    // Erro Zod
-    mockReq.body = {}; 
-    await controller.adminRegister(mockReq, mockReply);
-    expect(mockReply.status).toHaveBeenCalledWith(400);
+    it("❌ deve repassar ConflictError se e-mail já existir", async () => {
+      mockService.registerCustomer.mockRejectedValue(
+        new ConflictError("Conflito"),
+      );
+      await expect(
+        controller.customerRegister(mockReq, mockReply),
+      ).rejects.toThrow(ConflictError);
+    });
   });
 });

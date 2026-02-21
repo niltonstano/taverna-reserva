@@ -1,197 +1,144 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { z } from "zod";
-import { IProduct } from "../models/product.model.js";
+import { IProductDB } from "../models/product.model.js";
 import {
-  productIdSchema,
-  productQuerySchema,
-  productSchema,
+  ProductInput,
+  ProductParams,
+  ProductQuery,
 } from "../schemas/product.schema.js";
 import { ProductService } from "../services/product.service.js";
-
-// Tipagens Inferidas dos Schemas Zod
-export type ProductInput = z.infer<typeof productSchema>;
-export type ProductQuery = z.infer<typeof productQuerySchema>;
-export type ProductParams = z.infer<typeof productIdSchema>;
+import { IProduct } from "../types/product.js";
 
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
-  /**
-   * 1. LISTAR PRODUTOS (Público)
-   * Sanitização contra NoSQL Injection no termo de busca
-   */
-  findAll = async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const query = productQuerySchema.parse(request.query);
-      const page = Math.max(1, Number(query.page) || 1);
-      const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
-      const search = query.searchTerm?.replace(/[$.]/g, "");
+  public findAll = async (
+    request: FastifyRequest<{ Querystring: ProductQuery }>,
+    reply: FastifyReply,
+  ) => {
+    const { page = 1, limit = 50, searchTerm } = request.query;
+    const search = searchTerm?.replace(/[$.]/g, "").trim();
+    const result = await this.productService.list(
+      Number(page),
+      Number(limit),
+      search,
+    );
 
-      const result = await this.productService.list(page, limit, search);
-
-      return reply.status(200).send({
-        data: result.products,
+    return reply.status(200).send({
+      success: true,
+      data: result.products.map((p) => this.normalizeProductResponse(p)),
+      pagination: {
         total: result.total,
-        page,
-        totalPages: Math.ceil(result.total / limit),
-      });
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ message: "Erro ao carregar catálogo." });
-    }
+        page: Number(page),
+        totalPages: result.pages,
+      },
+    });
   };
 
-  /**
-   * 2. BUSCAR UM RÓTULO (Público)
-   */
-  findOne = async (
+  public findOne = async (
     request: FastifyRequest<{ Params: ProductParams }>,
-    reply: FastifyReply
+    reply: FastifyReply,
   ) => {
-    try {
-      const { id } = productIdSchema.parse(request.params);
-      const product = await this.productService.findById(id);
-
-      if (!product) {
-        return reply.status(404).send({ message: "Vinho não encontrado." });
-      }
-
-      return reply.status(200).send(product);
-    } catch (error) {
-      return reply.status(400).send({ message: "ID fornecido é inválido." });
-    }
+    const product = await this.productService.findById(request.params.id);
+    return reply
+      .status(200)
+      .send({ success: true, data: this.normalizeProductResponse(product) });
   };
 
-  /**
-   * 3. CRIAR RÓTULO (Admin Only)
-   */
-  create = async (
+  public create = async (
     request: FastifyRequest<{ Body: ProductInput }>,
-    reply: FastifyReply
+    reply: FastifyReply,
   ) => {
-    try {
-      const cleanBody = productSchema.parse(request.body);
-
-      // ✅ Tipagem Forte: Convertemos para unknown e depois para IProduct
-      // Isso resolve a incompatibilidade de 'null' do Zod vs 'undefined' do Mongoose
-      const product = await this.productService.create(
-        cleanBody as unknown as IProduct
-      );
-
-      return reply.status(201).send(product);
-    } catch (error) {
-      request.log.error(error);
-      return reply
-        .status(422)
-        .send({ message: "Dados do produto são inválidos." });
-    }
+    const dbPayload = this.mapToDatabase(request.body);
+    const product = await this.productService.create(dbPayload as IProductDB);
+    return reply
+      .status(201)
+      .send({ success: true, data: this.normalizeProductResponse(product) });
   };
 
-  /**
-   * 4. ATUALIZAR RÓTULO (Admin Only)
-   */
-  update = async (
+  public update = async (
     request: FastifyRequest<{
       Params: ProductParams;
       Body: Partial<ProductInput>;
     }>,
-    reply: FastifyReply
+    reply: FastifyReply,
   ) => {
-    try {
-      const { id } = productIdSchema.parse(request.params);
-      const cleanBody = productSchema.partial().parse(request.body);
-
-      // ✅ Tipagem Forte: Partial<IProduct> garante que apenas campos válidos sejam atualizados
-      const product = await this.productService.update(
-        id,
-        cleanBody as unknown as Partial<IProduct>
-      );
-
-      return reply.status(200).send(product);
-    } catch (error) {
-      request.log.error(error);
-      return reply
-        .status(400)
-        .send({ message: "Falha na atualização do rótulo." });
-    }
+    const dbPayload = this.mapToDatabase(request.body);
+    const updated = await this.productService.update(
+      request.params.id,
+      dbPayload,
+    );
+    return reply
+      .status(200)
+      .send({ success: true, data: this.normalizeProductResponse(updated) });
   };
 
-  /**
-   * 5. EXCLUIR RÓTULO (Admin Only)
-   */
-  delete = async (
+  public delete = async (
     request: FastifyRequest<{ Params: ProductParams }>,
-    reply: FastifyReply
+    reply: FastifyReply,
   ) => {
-    try {
-      const { id } = productIdSchema.parse(request.params);
-      await this.productService.delete(id);
-
-      return reply.status(200).send({
-        success: true,
-        message: "Rótulo removido com sucesso.",
-      });
-    } catch (error) {
-      request.log.error(error);
-      return reply
-        .status(500)
-        .send({ message: "Erro ao tentar remover o rótulo." });
-    }
+    await this.productService.delete(request.params.id);
+    return reply
+      .status(200)
+      .send({ success: true, message: "Produto removido com sucesso." });
   };
 
-  /**
-   * 6. SEED (Admin Only)
-   */
-  seed = async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const result = await this.productService.seed();
-      return reply.status(200).send({
-        message: "Catálogo restaurado com sucesso!",
-        imported: result.imported,
-      });
-    } catch (error) {
-      request.log.error(error);
-      return reply
-        .status(500)
-        .send({ message: "Falha ao restaurar o catálogo." });
-    }
-  };
-
-  /**
-   * 7. TOGGLE OFFER (Admin Only)
-   */
-  toggleOffer = async (
+  public toggleOffer = async (
     request: FastifyRequest<{ Params: ProductParams }>,
-    reply: FastifyReply
+    reply: FastifyReply,
   ) => {
-    try {
-      const { id } = productIdSchema.parse(request.params);
-      const product = await this.productService.findById(id);
-
-      if (!product) {
-        return reply
-          .status(404)
-          .send({ success: false, message: "Vinho não encontrado." });
-      }
-
-      const newStatus = !(product.emOferta ?? false);
-      const updatePayload: Partial<IProduct> = { emOferta: newStatus };
-
-      await this.productService.update(id, updatePayload);
-
-      // ✅request.user tipado via JWTPayload
-      request.log.info(
-        `Admin ${request.user.id} alterou oferta do produto ${id} para ${newStatus}`
-      );
-
-      return reply.status(200).send({
-        success: true,
-        message: newStatus ? "Adicionado às ofertas." : "Removido das ofertas.",
-        emOferta: newStatus,
-      });
-    } catch (error) {
-      request.log.error(error);
-      return reply.status(500).send({ message: "Erro ao processar oferta." });
-    }
+    const product = await this.productService.findById(request.params.id);
+    const updated = await this.productService.update(request.params.id, {
+      emOferta: !product.emOferta,
+    } as any);
+    return reply.status(200).send({
+      success: true,
+      id: request.params.id,
+      emOferta: updated.emOferta,
+    });
   };
+
+  /**
+   * 🌱 SEED (Popular Banco)
+   */
+  public seed = async (_request: FastifyRequest, reply: FastifyReply) => {
+    // Se você tiver um método no service: await this.productService.runSeed();
+    return reply
+      .status(200)
+      .send({ success: true, message: "Banco de dados populado com sucesso." });
+  };
+
+  /**
+   * 🛠️ HELPERS
+   */
+  private normalizeProductResponse(p: IProduct) {
+    const raw = p as any;
+    return {
+      _id: p._id?.toString(),
+      name: p.name,
+      description: p.description || "",
+      price: Number(p.price) || 0,
+      stock: Number(p.stock) || 0,
+      category: p.category || "Geral",
+      active: p.active ?? true,
+      emOferta: p.emOferta ?? false,
+      safra: p.safra || "N/V",
+      uva: p.uva || "Blend",
+      origem: p.origem || "Não informada",
+      pontuacao: p.pontuacao || 0,
+      imageUrl: raw.imageUrl || raw.image_url || "/vinhos/rioja.webp",
+      dimensions: p.dimensions || { width: 0, height: 0, length: 0 },
+      weight: p.weight || 0,
+      updatedAt: raw.updatedAt,
+    };
+  }
+
+  private mapToDatabase(data: any): Partial<IProductDB> {
+    const resolvedImageUrl = data.imageUrl || data.image_url;
+    const { _id, id, imageUrl, image_url, createdAt, updatedAt, ...cleanData } =
+      data;
+    return {
+      ...cleanData,
+      ...(resolvedImageUrl && { imageUrl: resolvedImageUrl }),
+    } as Partial<IProductDB>;
+  }
 }

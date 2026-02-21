@@ -1,34 +1,24 @@
 import "@fastify/jwt";
 import "fastify";
-import { Env } from "../config/env.js";
-
-/**
- * Interface única para o Payload do Token e Usuário Autenticado.
- * Centraliza a estrutura de dados do usuário em todo o sistema.
- */
-export interface JWTPayload {
-  id: string;
-  email: string;
-  role: "admin" | "customer";
-}
+import { env } from "../config/env.js";
 
 declare module "fastify" {
   interface FastifyInstance {
-    env: Env;
+    config: typeof env;
   }
-
   interface FastifyRequest {
-    startTime?: number;
-    /**
-     * ✅ Agora o TS sabe que 'request.user' sempre terá essa estrutura.
-     */
-    user: JWTPayload;
+    startTime: number;
+    // Não defina 'user' aqui se estiver usando JWT, use o bloco abaixo.
   }
 }
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: JWTPayload;
-    user: JWTPayload;
+    user: {
+      id: string;
+      email: string;
+      role: "admin" | "customer";
+      permissions?: string[];
+    };
   }
 }

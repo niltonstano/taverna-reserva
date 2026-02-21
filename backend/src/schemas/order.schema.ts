@@ -7,7 +7,7 @@ export const orderStatusSchema = z.enum([
   "paid",
   "shipped",
   "delivered",
-  "cancelled",
+  "canceled",
 ]);
 
 const orderItemSchema = z.object({
@@ -15,16 +15,33 @@ const orderItemSchema = z.object({
   quantity: z.number().int().min(1, "A quantidade mínima é 1"),
 });
 
-// --- PARTE 2: SCHEMAS DE REQUISIÇÃO (BODY/PARAMS) ---
+const shippingSchema = z.object({
+  service: z.string(),
+  company: z.string(),
+  price: z.number(),
+  deadline: z.number(),
+});
 
+// --- PARTE 2: SCHEMAS DE REQUISIÇÃO (VALIDAÇÃO) ---
+
+// 🛡️ Validação dos Headers (Obrigatório para o Checkout)
+export const orderHeadersSchema = z
+  .object({
+    "idempotency-key": z
+      .string()
+      .min(10, "A chave de idempotência deve ter pelo menos 10 caracteres"),
+  })
+  .passthrough(); // Permite outros headers como Authorization e Content-Type
+
+// 📦 Validação do Body (Dados do Pedido)
 export const createOrderSchema = z.object({
-  // userId opcional se você pegar do token no backend
-  userId: z.string().min(1, "O ID do usuário é obrigatório").optional(),
   items: z
     .array(orderItemSchema)
     .min(1, "O pedido deve ter pelo menos um item"),
   total: z.number().min(0, "O total não pode ser negativo"),
-  status: orderStatusSchema.default("pending"),
+  address: z.string().min(5, "Endereço completo é obrigatório"),
+  zipCode: z.string().min(8, "CEP inválido"),
+  shipping: shippingSchema,
 });
 
 export const updateOrderSchema = z.object({
@@ -35,29 +52,7 @@ export const orderIdParamSchema = z.object({
   id: z.string().regex(/^[0-9a-fA-F]{24}$/, "ID do pedido inválido"),
 });
 
-// Para 'my-orders', como pegamos o ID do token, o schema de validação pode ser um objeto vazio
-export const getMyOrdersSchema = z.object({});
-
-// --- PARTE 3: SCHEMAS DE RESPOSTA (O QUE RESOLVE O ERRO 500) ---
-
-/**
- * ✅ Este schema garante que a resposta tenha a chave 'data' como array.
- * Se o Controller enviar algo diferente, o Zod avisa antes de quebrar.
- */
-export const listOrdersResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.array(
-    z.object({
-      _id: z.string(),
-      total: z.number(),
-      status: orderStatusSchema,
-      createdAt: z.any().optional(), // Aceita data ou string do MongoDB
-      items: z.array(z.any()).optional(),
-    })
-  ),
-});
-
-// --- PARTE 4: TIPAGEM (DTOs) ---
+// --- PARTE 3: TIPAGEM (DTOs) ---
 
 export type CreateOrderDTO = z.infer<typeof createOrderSchema>;
 export type UpdateOrderDTO = z.infer<typeof updateOrderSchema>;

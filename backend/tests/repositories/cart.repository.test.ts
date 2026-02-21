@@ -1,70 +1,77 @@
-// ✅ IMPORTAÇÃO NECESSÁRIA PARA ESM + TYPESCRIPT
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
+import { Types } from "mongoose";
+import { ProductModel } from "../../src/models/product.model.js";
+import { CartRepository } from "../../src/repositories/cart.repository.js";
+import {
+  clearMockDB,
+  connectMockDB,
+  disconnectMockDB,
+} from "../helpers/mongo-memory.js";
 
-import { CartRepository } from '../../src/repositories/cart.repository.js';
-import { connectMockDB, disconnectMockDB, clearMockDB } from '../helpers/mongo-memory.js';
-import { Types } from 'mongoose';
-
-describe("CartRepository - Testes de Integração com Banco Real (In-Memory)", () => {
+describe("CartRepository - Integração", () => {
   let cartRepository: CartRepository;
 
   beforeAll(async () => await connectMockDB());
   afterAll(async () => await disconnectMockDB());
-  
+
   beforeEach(async () => {
     await clearMockDB();
     cartRepository = new CartRepository();
   });
 
   const userId = new Types.ObjectId().toHexString();
-  const productId = new Types.ObjectId().toHexString();
 
-  describe("updateItemAtomatic", () => {
+  const createFakeProduct = async (name = "Produto Teste") => {
+    return await ProductModel.create({
+      name,
+      price: 10000,
+      stock: 50,
+      active: true,
+      category: "Vinho", // ✅ Categoria válida
+      weight: 1.5,
+      dimensions: { width: 10, height: 30, length: 10 },
+    });
+  };
+
+  describe("addItemAtomic", () => {
     it("deve criar um novo carrinho (upsert) se o usuário não possuir um", async () => {
-      const quantity = 2;
-      
-      const cart = await cartRepository.updateItemAtomatic(userId, productId, quantity);
+      const product = await createFakeProduct();
+      await cartRepository.addItemAtomic(userId, product._id.toString(), 2);
 
-      expect(cart).toBeDefined();
+      const cart = await cartRepository.findByUserId(userId);
       expect(cart?.items).toHaveLength(1);
-      // Usamos cast ou toString() para garantir comparação de strings
-      expect(cart?.items[0].productId.toString()).toBe(productId);
       expect(cart?.items[0].quantity).toBe(2);
     });
 
-    it("deve incrementar a quantidade ($inc) se o produto já existir no carrinho", async () => {
-      await cartRepository.updateItemAtomatic(userId, productId, 1);
-      const updatedCart = await cartRepository.updateItemAtomatic(userId, productId, 3);
+    it("deve incrementar a quantidade se o produto já existir", async () => {
+      const product = await createFakeProduct();
+      const pId = product._id.toString();
 
-      expect(updatedCart?.items).toHaveLength(1); 
-      expect(updatedCart?.items[0].quantity).toBe(4); // 1 + 3 = 4
-    });
+      await cartRepository.addItemAtomic(userId, pId, 1);
+      await cartRepository.addItemAtomic(userId, pId, 2);
 
-    it("deve adicionar um novo item ($push) se o carrinho existir mas o produto for novo", async () => {
-      const productId2 = new Types.ObjectId().toHexString();
-      
-      await cartRepository.updateItemAtomatic(userId, productId, 1);
-      const updatedCart = await cartRepository.updateItemAtomatic(userId, productId2, 5);
-
-      expect(updatedCart?.items).toHaveLength(2);
-      expect(updatedCart?.items.find(i => i.productId.toString() === productId2)?.quantity).toBe(5);
+      const cart = await cartRepository.findByUserId(userId);
+      expect(cart?.items[0].quantity).toBe(3);
     });
   });
 
-  describe("deleteByUserId", () => {
-    it("deve retornar true ao deletar um carrinho existente", async () => {
-      await cartRepository.updateItemAtomatic(userId, productId, 1);
-      
-      const result = await cartRepository.deleteByUserId(userId);
-      const findAgain = await cartRepository.findByUserId(userId);
+  describe("clearCart", () => {
+    it("deve limpar os itens do carrinho", async () => {
+      const product = await createFakeProduct();
+      await cartRepository.addItemAtomic(userId, product._id.toString(), 5);
 
-      expect(result).toBe(true);
-      expect(findAgain).toBeNull();
-    });
+      const success = await cartRepository.clearCart(userId);
+      const cart = await cartRepository.findByUserId(userId);
 
-    it("deve retornar false ao tentar deletar um carrinho que não existe", async () => {
-      const result = await cartRepository.deleteByUserId(new Types.ObjectId().toHexString());
-      expect(result).toBe(false);
+      expect(success).toBe(true);
+      expect(cart?.items).toHaveLength(0);
     });
   });
 });

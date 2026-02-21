@@ -1,125 +1,153 @@
-import { useEffect, useMemo, useState } from 'react';
+import { LayoutGrid, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Footer } from '../../components/common/Footer';
 import { WineCard } from '../../components/products/WineCard';
-import { useCart } from '../../context/CartContext';
+import { useCartActions } from '../../context/CartContext';
 import { api } from '../../services/api';
 
 export function Catalog() {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { addToCart } = useCart();
+  const [searchParams] = useSearchParams();
+  const { addToCart } = useCartActions();
+
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. Carregamento dos dados com limite alto para permitir filtro no frontend
-  useEffect(() => {
-    async function loadProducts() {
-      try {
-        setLoading(true);
-        // Aumentamos o limite para 100 para trazer todos os vinhos de uma vez
-        const res = await api.get('/products?limit=100');
+  const category = searchParams.get('category');
+  const search = searchParams.get('search');
 
-        const rawData = res.data.data || res.data.products || (Array.isArray(res.data) ? res.data : []);
+  const displayCategory = category ? category.charAt(0).toUpperCase() + category.slice(1).replace(/-/g, ' ') : 'Nossa';
 
-        console.log('📦 API respondeu com:', rawData.length, 'produtos.');
-        setProducts(rawData);
-      } catch (err) {
-        console.error('❌ Erro ao carregar catálogo:', err);
-      } finally {
-        setLoading(false);
+  const fetchProducts = useCallback(async () => {
+    try {
+      setLoading(true);
+      const { data: res } = await api.get(`/products?limit=100&t=${Date.now()}`);
+      const result = res.products || res.data || res;
+
+      if (Array.isArray(result)) {
+        const allActive = result.filter((p: any) => p.active !== false);
+
+        const checkIsPromo = (p: any) => {
+          const isPromoFlag = p.emOferta === true || p.emOferta === 'true' || p.isOffer === true;
+          const pName = String(p.name || '').toLowerCase();
+          return isPromoFlag || pName.includes('oferta');
+        };
+
+        const isOfferPage = category?.toLowerCase() === 'ofertas';
+        let filtered: any[] = [];
+
+        if (isOfferPage) {
+          filtered = allActive.filter((p) => checkIsPromo(p));
+        } else {
+          filtered = allActive.filter((p) => !checkIsPromo(p));
+          if (!search && category && category.toLowerCase() !== 'todos') {
+            const target = category.toLowerCase().replace(/-/g, ' ');
+            filtered = filtered.filter((p: any) => {
+              const c = String(p.category || '').toLowerCase();
+              const t = String(p.type || '').toLowerCase();
+              return c.includes(target) || t.includes(target);
+            });
+          }
+        }
+
+        if (search) {
+          const target = search.toLowerCase().trim();
+          filtered = filtered.filter((p: any) =>
+            String(p.name || '')
+              .toLowerCase()
+              .includes(target),
+          );
+        }
+        setProducts(filtered);
       }
+    } catch (error) {
+      console.error('[Catalog] Erro:', error);
+      setProducts([]);
+    } finally {
+      setLoading(false);
     }
-    loadProducts();
-  }, []);
+  }, [category, search]);
 
-  const categoryFilter = searchParams.get('category');
-
-  // 2. Lógica de Filtro Inteligente (Frontend Side)
-  const vinhosExibidos = useMemo(() => {
-    if (!products || products.length === 0) return [];
-
-    // Se não houver filtro na URL, exibe os que NÃO são oferta
-    if (!categoryFilter) return products.filter((v) => v.emOferta !== true);
-
-    // Função de limpeza: minúsculo, sem acento, sem espaços e sem plural
-    const normalizar = (s: any) =>
-      String(s || '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/s$/, ''); // transforma "tintos" em "tinto"
-
-    const termoBusca = normalizar(categoryFilter);
-
-    const filtrados = products.filter((v) => {
-      // Tenta ler 'category' ou 'categoria' do objeto do banco
-      const catBanco = normalizar(v.category || v.categoria || '');
-
-      // Log para conferência no F12
-      console.log(`🔎 Filtrando: Banco [${catBanco}] vs URL [${termoBusca}]`);
-
-      return catBanco.includes(termoBusca) || termoBusca.includes(catBanco);
-    });
-
-    console.log(`🍷 Filtro aplicado: ${filtrados.length} vinhos encontrados.`);
-    return filtrados;
-  }, [products, categoryFilter]);
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white flex flex-col relative overflow-hidden">
-      {/* Background Decorativo */}
+      {/* Background Idêntico ao da página de Offers (Mais claro e vivo) */}
       <div className="fixed inset-0 z-0">
-        <img src="/bg/adega1.webp" className="w-full h-full object-cover grayscale opacity-[0.12] brightness-125" alt="Adega" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-transparent to-[#050505]" />
+        <img src="/bg/adega1.webp" className="w-full h-full object-cover grayscale opacity-[0.18] brightness-125" alt="Catalog Background" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#050505] via-[#050505]/30 to-[#050505]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#c2410c]/10 blur-[150px] rounded-full opacity-40" />
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 pt-44 pb-24 relative z-10 flex-grow w-full">
-        <header className="mb-28 text-center">
-          <p className="text-[#c2410c] font-cinzel text-[11px] tracking-[0.7em] uppercase mb-6 opacity-80">Curadoria Exclusiva</p>
-          <h1 className="text-6xl md:text-8xl font-serif italic mb-8 capitalize leading-none tracking-tighter">
-            {categoryFilter ? categoryFilter : 'Nossa'} <span className="text-[#c2410c]">Reserva</span>
+      <div className="max-w-7xl mx-auto px-6 pt-40 pb-20 relative z-10 flex-grow w-full">
+        {/* Header Minimalista e Sofisticado */}
+        <header className="mb-32 text-center">
+          <button
+            onClick={() => navigate('/categories')}
+            className="group flex items-center justify-center text-zinc-400 hover:text-[#c2410c] transition-all mx-auto mb-10 font-mono text-[9px] uppercase tracking-[0.5em] animate-in fade-in slide-in-from-top-4 duration-1000"
+          >
+            Explorar Categorias
+          </button>
+
+          <div className="inline-flex items-center gap-4 mb-4 opacity-50">
+            <div className="h-[1px] w-8 bg-[#c2410c]" />
+            <LayoutGrid size={12} className="text-[#c2410c]" />
+            <div className="h-[1px] w-8 bg-[#c2410c]" />
+          </div>
+
+          <h1 className="text-6xl md:text-8xl font-serif italic mb-6 leading-tight tracking-tighter animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200 fill-mode-both">
+            {search ? 'Busca por' : displayCategory}
+            <span className="text-[#c2410c] block md:inline md:ml-4">{search ? `"${search}"` : 'Adega'}</span>
           </h1>
+          <div className="h-[1px] w-24 bg-[#c2410c]/40 mx-auto animate-in fade-in zoom-in duration-1000 delay-500" />
         </header>
 
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-40">
-            <div className="w-16 h-16 border-2 border-[#c2410c]/10 border-t-[#c2410c] rounded-full animate-spin mb-8" />
-            <p className="text-[#c2410c] font-cinzel text-[10px] tracking-widest uppercase animate-pulse">Sincronizando adega...</p>
+          <div className="flex flex-col items-center justify-center py-40 gap-6">
+            <RefreshCw className="animate-spin text-[#c2410c]" size={32} strokeWidth={1} />
+            <span className="font-mono text-[10px] uppercase tracking-[0.4em] text-zinc-600 animate-pulse">Carregando Acervo</span>
           </div>
         ) : (
-          <>
-            {vinhosExibidos.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-32 gap-x-12">
-                {vinhosExibidos.map((product) => (
-                  <WineCard
-                    key={product._id || product.id}
-                    wine={product}
-                    onAction={() => navigate(`/product/${product._id || product.id}`)}
-                    onBuy={() => {
-                      addToCart(product);
-                      navigate('/cart');
-                    }}
-                  />
+          <main className="min-h-[400px]">
+            {products.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-y-32 gap-x-16">
+                {products.map((product, index) => (
+                  <div
+                    key={product.id || product._id}
+                    className="flex justify-center animate-in fade-in slide-in-from-bottom-10 duration-1000 fill-mode-both"
+                    style={{ animationDelay: `${index * 50}ms` }}
+                  >
+                    <WineCard
+                      wine={product}
+                      onAction={(w: any) => navigate(`/product/${w.id || w._id}`)}
+                      onBuy={(w: any) => {
+                        addToCart(w);
+                        navigate('/cart');
+                      }}
+                    />
+                  </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-40 animate-in fade-in duration-1000">
-                <p className="italic font-serif text-3xl opacity-20 mb-12">Nenhum rótulo encontrado para "{categoryFilter}".</p>
+              <div className="col-span-full text-center py-40">
+                <p className="opacity-30 italic font-serif text-3xl mb-4">Nenhum rótulo encontrado.</p>
                 <button
                   onClick={() => navigate('/catalog')}
-                  className="group flex items-center gap-4 mx-auto text-[#c2410c] font-cinzel text-[10px] tracking-[0.4em] uppercase hover:opacity-70 transition-all"
+                  className="text-[#c2410c] font-mono text-[10px] uppercase tracking-widest border-b border-[#c2410c]/20 pb-1 hover:border-[#c2410c] transition-all"
                 >
-                  <div className="h-[1px] w-8 bg-[#c2410c] group-hover:w-12 transition-all" />
-                  Ver catálogo completo
+                  Ver todos os vinhos
                 </button>
               </div>
             )}
-          </>
+          </main>
         )}
       </div>
       <Footer />
     </div>
   );
 }
+
+export default Catalog;

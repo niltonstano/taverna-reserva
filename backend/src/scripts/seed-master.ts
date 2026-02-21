@@ -1,227 +1,144 @@
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
-import { env } from "../config/env.js";
 import { AdminModel } from "../models/admin.js";
 import { CustomerModel } from "../models/customer.model.js";
 import { ProductModel } from "../models/product.model.js";
 
-const vinhosReais = [
+const vinhosBase = [
   {
     name: "Melini Chianti Riserva",
-    safra: "2021",
-    origem: "Toscana, Itália",
-    price: 189.0,
-    image_url: "/vinhos/melini-chianti.webp",
-    uva: "Sangiovese",
-    category: "Tintos",
-    description: "Um clássico da Toscana com notas de cereja madura.",
-    pontuacao: 92,
-    stock: 50,
-    active: true,
+    price: 189,
+    img: "/vinhos/melini-chianti.webp",
+    type: "Tinto",
   },
   {
     name: "Château Teyssier Grand Cru",
-    safra: "2018",
-    origem: "Bordeaux, França",
-    price: 890.0,
-    image_url: "/vinhos/chateau-teyssier.webp",
-    uva: "Merlot",
-    category: "Tintos",
-    description: "Elegância francesa com taninos sedosos.",
-    pontuacao: 96,
-    emOferta: true,
-    stock: 25,
-    active: true,
+    price: 890,
+    img: "/vinhos/chateau-teyssier.webp",
+    type: "Tinto",
   },
   {
     name: "Cono Sur Reserva Especial",
-    safra: "2021",
-    origem: "Casablanca, Chile",
-    price: 198.0,
-    image_url: "/vinhos/cono-sur.webp",
-    uva: "Chardonnay",
-    category: "Brancos",
-    description: "Frescor cítrico vibrante e mineralidade.",
-    pontuacao: 90,
-    emOferta: true,
-    stock: 40,
-    active: true,
+    price: 198,
+    img: "/vinhos/cono-sur.webp",
+    type: "Branco",
   },
   {
     name: "Alta Pinot Grigio",
-    safra: "2022",
-    origem: "Friuli, Itália",
-    price: 145.0,
-    image_url: "/vinhos/alta-pinot-gridio.webp",
-    uva: "Pinot Grigio",
-    category: "Brancos",
-    description: "Leve, refrescante com notas de pera e maçã verde.",
-    pontuacao: 88,
-    stock: 60,
-    active: true,
-  },
-  {
-    name: "Pinot Grigio delle Venezie",
-    safra: "2022",
-    origem: "Veneza, Itália",
-    price: 135.0,
-    image_url: "/vinhos/pinot-grigio.webp",
-    uva: "Pinot Grigio",
-    category: "Brancos",
-    description: "Vinho versátil e equilibrado, ideal para frutos do mar.",
-    pontuacao: 87,
-    stock: 45,
-    active: true,
+    price: 145,
+    img: "/vinhos/alta-pinot-gridio.webp",
+    type: "Branco",
   },
   {
     name: "Bourgogne Pinot Noir",
-    safra: "2020",
-    origem: "Borgonha, França",
-    price: 340.0,
-    image_url: "/vinhos/bourgogne.webp",
-    uva: "Pinot Noir",
-    category: "Tintos",
-    description: "Frutas vermelhas frescas e grande complexidade.",
-    pontuacao: 93,
-    stock: 15,
-    active: true,
+    price: 340,
+    img: "/vinhos/bourgogne.webp",
+    type: "Tinto",
   },
   {
     name: "Château Les Ancres",
-    safra: "2019",
-    origem: "Bordeaux, França",
-    price: 210.0,
-    image_url: "/vinhos/chateau-les-ancres.webp",
-    uva: "Cabernet Sauvignon",
-    category: "Tintos",
-    description: "Estrutura firme com notas de tabaco e especiarias.",
-    pontuacao: 91,
-    stock: 30,
-    active: true,
+    price: 210,
+    img: "/vinhos/chateau-les-ancres.webp",
+    type: "Tinto",
   },
   {
     name: "Don David Reserva",
-    safra: "2021",
-    origem: "Salta, Argentina",
-    price: 165.0,
-    image_url: "/vinhos/don-david.webp",
-    uva: "Malbec",
-    category: "Tintos",
-    description: "Potência e cor intensa típicas da altitude argentina.",
-    pontuacao: 89,
-    stock: 45,
-    active: true,
+    price: 165,
+    img: "/vinhos/don-david.webp",
+    type: "Tinto",
   },
   {
     name: "Limestone Coast Chardonnay",
-    safra: "2022",
-    origem: "Austrália",
-    price: 178.0,
-    image_url: "/vinhos/limestone-coast.webp",
-    uva: "Chardonnay",
-    category: "Brancos",
-    description: "Notas amanteigadas e toque sutil de carvalho.",
-    pontuacao: 90,
-    stock: 35,
-    active: true,
+    price: 178,
+    img: "/vinhos/limestone-coast.webp",
+    type: "Branco",
   },
   {
     name: "Montegras Reserva Especial",
-    safra: "2020",
-    origem: "Vale do Colchagua, Chile",
-    price: 155.0,
-    image_url: "/vinhos/montegras.webp",
-    uva: "Carmenere",
-    category: "Tintos",
-    description: "O expoente máximo da uva Carmenere chilena.",
-    pontuacao: 91,
-    stock: 50,
-    active: true,
+    price: 155,
+    img: "/vinhos/montegras.webp",
+    type: "Tinto",
   },
   {
     name: "Rioja Reserva Especial",
-    safra: "2017",
-    origem: "Rioja, Espanha",
-    price: 295.0,
-    image_url: "/vinhos/rioja.webp",
-    uva: "Tempranillo",
-    category: "Tintos",
-    description: "Envelhecido em carvalho, notas de baunilha e couro.",
-    pontuacao: 94,
-    stock: 20,
-    active: true,
+    price: 295,
+    img: "/vinhos/rioja.webp",
+    type: "Tinto",
   },
   {
     name: "Vinarija Perak Especial",
-    safra: "2021",
-    origem: "Kutjevo, Croácia",
-    price: 220.0,
-    image_url: "/vinhos/vinarija-perak-espacial.webp",
-    uva: "Graševina",
-    category: "Brancos",
-    description: "Um vinho exótico e elegante do leste europeu.",
-    pontuacao: 92,
-    stock: 12,
-    active: true,
+    price: 220,
+    img: "/vinhos/vinarija-perak-espacial.webp",
+    type: "Branco",
+  },
+  {
+    name: "Three of Wine",
+    price: 232,
+    img: "/vinhos/three-of-wine.webp",
+    type: "Tinto",
   },
 ];
 
-async function seed(): Promise<void> {
+async function seed() {
   try {
-    process.stdout.write("⏳ Iniciando Reset total do Banco de Dados...\n");
+    console.log("\n==========================================");
+    console.log("🏰 TAVERNA RESERVA - DATA SEED");
+    console.log("==========================================");
 
-    if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(env.MONGO_URI);
-    }
+    const uri =
+      process.env.MONGO_URI || "mongodb://mongodb:27017/taverna?replicaSet=rs0";
+    await mongoose.connect(uri);
+    console.log("📡 Conectado ao MongoDB...");
 
-    // 1. Limpeza total
+    console.log("🧹 Limpando coleções...");
     await Promise.all([
       AdminModel.deleteMany({}),
       CustomerModel.deleteMany({}),
       ProductModel.deleteMany({}),
     ]);
-    process.stdout.write("🧹 Banco limpo com sucesso.\n");
 
-    // 2. Criação dos Utilizadores
-    const passwordToHash = env.INITIAL_ADMIN_PASSWORD || "admin123";
-    const hashedPassword = await bcrypt.hash(passwordToHash, 10);
-
-    const adminData = {
-      name: "Admin Master",
-      email: env.INITIAL_ADMIN_EMAIL || "admin@taverna.com",
+    console.log("👤 Criando Admin...");
+    const hashedPassword = await bcrypt.hash("sua senha_segura_aqui", 10);
+    await AdminModel.create({
+      name: "Master Admin",
+      email: "admin@teste.com",
       password: hashedPassword,
       role: "admin",
       permissions: ["all"],
-    };
+    });
 
-    const customerData = {
-      name: "Nilton Cliente",
-      email: "cliente@teste.com",
-      password: hashedPassword,
-      role: "customer",
-    };
+    console.log(`🍷 Inserindo ${vinhosBase.length} produtos...`);
 
-    await AdminModel.create(adminData);
-    await CustomerModel.create(customerData);
-    process.stdout.write("👥 Utilizadores (Admin/Cliente) criados.\n");
+    const vinhosFinal = vinhosBase.map((v) => ({
+      name: v.name,
+      price: v.price,
+      // AQUI ESTÁ A CHAVE:
+      category: "Vinho", // Campo obrigatório conforme seu enum
+      type: v.type, // "Tinto" ou "Branco" vai aqui no type
+      imageUrl: v.img,
+      stock: 50,
+      active: true,
+      description: "Vinho selecionado pela Taverna Reserva.",
+      weight: 1.5,
+      dimensions: { width: 12, height: 33, length: 12 },
+      safra: "2021",
+      uva: "Seleção Especial",
+      origem: "Importado",
+      pontuacao: 90,
+    }));
 
-    // 3. Inserção dos Vinhos
-    await ProductModel.insertMany(vinhosReais);
-    process.stdout.write(
-      `🍷 ${vinhosReais.length} Vinhos importados para o catálogo.\n`,
-    );
+    await ProductModel.insertMany(vinhosFinal);
 
-    process.stdout.write(
-      "✅ PROCESSO CONCLUÍDO: Taverna Reserva está pronta!\n",
-    );
-  } catch (error) {
-    process.stderr.write(
-      `❌ Erro no Master Seed: ${error instanceof Error ? error.message : error}\n`,
-    );
-    process.exit(1);
-  } finally {
+    console.log("\n✅ BANCO POPULADO COM SUCESSO!");
+    console.log("👉 Admin: admin@teste.com | Senha: dmin@123");
+    console.log("==========================================\n");
+
     await mongoose.connection.close();
     process.exit(0);
+  } catch (err: any) {
+    console.error("\n❌ ERRO NO SEED:");
+    console.error(err.message);
+    process.exit(1);
   }
 }
 

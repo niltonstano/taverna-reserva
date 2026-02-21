@@ -1,56 +1,48 @@
-version: "3.8"
-
 services:
-  # --- BANCO DE DADOS ---
   mongodb:
     image: mongo:latest
     container_name: taverna_db
+    hostname: mongodb
     restart: always
     ports:
       - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASS:-admin}
     volumes:
       - mongo-data:/data/db
-    networks:
-      - taverna-network
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # --- BACKEND (API Fastify) ---
-  api:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: taverna_api
-    restart: unless-stopped
-    ports:
-      - "3333:3333"
-    env_file:
-      - .env
-    environment:
-      - NODE_ENV=development
-      - HOST=0.0.0.0
-      - PORT=3333
-      # Note que usamos 'mongodb' (o nome do serviço acima) para a conexão interna
-      - MONGO_URI=mongodb://${MONGO_USER:-admin}:${MONGO_PASS:-admin}@mongodb:27017/taverna?authSource=admin
-      - JWT_SECRET=${JWT_SECRET}
-      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - taverna-network
 
-  # --- FRONTEND (React) ---
-  frontend:
-    build:
-      context: ./frontend
+  api:
+    build: ./backend
+    container_name: taverna_api
+    restart: unless-stopped
+    init: true
+    ports:
+      - "3333:3333"
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET}
+      - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
+      - MELHOR_ENVIO_TOKEN=${MELHOR_ENVIO_TOKEN}
+      - MELHOR_ENVIO_URL=${MELHOR_ENVIO_URL:-https://sandbox.melhorenvio.com.br}
+      - CEP_ORIGEM=${CEP_ORIGEM:-01001000}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    links:
+      - mongodb:mongodb
+    networks:
+      - taverna-network
+
+  web:
+    build: ./frontend
     container_name: taverna_web
     restart: unless-stopped
     ports:
@@ -62,10 +54,10 @@ services:
     networks:
       - taverna-network
 
-# --- REDE E VOLUMES ---
 networks:
   taverna-network:
     driver: bridge
 
 volumes:
   mongo-data:
+    driver: local

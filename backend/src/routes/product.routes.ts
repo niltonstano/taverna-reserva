@@ -1,124 +1,62 @@
 import { FastifyInstance } from "fastify";
-import { ZodTypeProvider } from "fastify-type-provider-zod";
-import { z } from "zod";
 import { ProductController } from "../controllers/product.controller.js";
-import { adminOnly, authenticate } from "../middlewares/authorization.js"; // 🛡️ Importado do seu middleware novo
+import {
+  CreateProductRequest,
+  IdOnlyRequest,
+  ProductQuery,
+  UpdateProductRequest,
+} from "../interfaces/product.interface.js";
 import { ProductRepository } from "../repositories/product.repository.js";
 import { ProductService } from "../services/product.service.js";
 
-// Importamos os schemas e os tipos inferidos
-import {
-  listProductsResponseSchema,
-  productIdSchema,
-  productQuerySchema,
-  productResponseSchema,
-  productSchema,
-} from "../schemas/product.schema.js";
-
-import {
-  ProductInput,
-  ProductParams,
-  ProductQuery,
-} from "../controllers/product.controller.js";
-
-export async function productRoutes(app: FastifyInstance) {
-  const typedApp = app.withTypeProvider<ZodTypeProvider>();
-
+/**
+ * Product Module Routes
+ * @description Define as rotas para o recurso de produtos, utilizando injeção de dependência manual.
+ */
+export async function productRoutes(fastify: FastifyInstance) {
+  // --- Injeção de Dependências (Manual DI) ---
   const repository = new ProductRepository();
   const service = new ProductService(repository);
   const controller = new ProductController(service);
 
-  const baseSecurity = { security: [{ bearerAuth: [] }] };
+  // --- 🔓 ROTAS PÚBLICAS ---
 
-  // --- 🌍 Rotas Públicas (Qualquer um acessa) ---
+  // GET /api/v1/products
+  fastify.get<ProductQuery>("/", (req, rep) => controller.findAll(req, rep));
 
-  typedApp.get<{ Querystring: ProductQuery }>(
-    "/",
-    {
-      schema: {
-        tags: ["Products"],
-        summary: "Listar produtos com paginação",
-        querystring: productQuerySchema,
-        response: { 200: listProductsResponseSchema },
-      },
-    },
-    controller.findAll
+  // GET /api/v1/products/:id
+  fastify.get<IdOnlyRequest>("/:id", (req, rep) =>
+    controller.findOne(req, rep),
   );
 
-  typedApp.get<{ Params: ProductParams }>(
-    "/:id",
-    {
-      schema: {
-        tags: ["Products"],
-        summary: "Obter detalhes de um produto",
-        params: productIdSchema,
-        response: { 200: productResponseSchema },
-      },
-    },
-    controller.findOne
-  );
+  // --- 🔒 ROTAS PRIVADAS (Contexto Admin) ---
+  // Encapsulamos em um plugin interno para futura aplicação de middlewares (hooks)
+  fastify.register(async (admin) => {
+    // Exemplo de uso futuro: admin.addHook('onRequest', fastify.authenticateAdmin);
 
-  // --- 🔐 Rotas Protegidas (Apenas ADMIN logado) ---
+    // POST /api/v1/products/
+    admin.post<CreateProductRequest>("/", (req, rep) =>
+      controller.create(req, rep),
+    );
 
-  // Rota de Seed protegida para não resetarem seu banco na produção
-  typedApp.get(
-    "/seed-agora",
-    {
-      schema: {
-        tags: ["System"],
-        summary: "Popular banco de dados (Admin Only)",
-        ...baseSecurity,
-      },
-      preHandler: [authenticate, adminOnly],
-    },
-    controller.seed
-  );
+    // PUT /api/v1/products/:id
+    admin.put<UpdateProductRequest>("/:id", (req, rep) =>
+      controller.update(req, rep),
+    );
 
-  typedApp.post<{ Body: ProductInput }>(
-    "/",
-    {
-      schema: {
-        tags: ["Products"],
-        summary: "Criar novo produto",
-        ...baseSecurity,
-        body: productSchema,
-        response: { 201: productResponseSchema },
-      },
-      preHandler: [authenticate, adminOnly],
-    },
-    controller.create
-  );
+    // DELETE /api/v1/products/:id
+    admin.delete<IdOnlyRequest>("/:id", (req, rep) =>
+      controller.delete(req, rep),
+    );
 
-  typedApp.put<{ Params: ProductParams; Body: Partial<ProductInput> }>(
-    "/:id",
-    {
-      schema: {
-        tags: ["Products"],
-        summary: "Atualizar produto existente",
-        ...baseSecurity,
-        params: productIdSchema,
-        body: productSchema.partial(),
-        response: { 200: productResponseSchema },
-      },
-      preHandler: [authenticate, adminOnly],
-    },
-    controller.update
-  );
+    // PATCH /api/v1/products/:id/toggle-offer
+    admin.patch<IdOnlyRequest>("/:id/toggle-offer", (req, rep) =>
+      controller.toggleOffer(req, rep),
+    );
 
-  typedApp.delete<{ Params: ProductParams }>(
-    "/:id",
-    {
-      schema: {
-        tags: ["Products"],
-        summary: "Remover produto",
-        ...baseSecurity,
-        params: productIdSchema,
-        response: {
-          200: z.object({ success: z.boolean(), message: z.string() }),
-        },
-      },
-      preHandler: [authenticate, adminOnly],
-    },
-    controller.delete
-  );
+    // POST /api/v1/products/seed
+    admin.post("/seed", (req, rep) => controller.seed(req, rep));
+  });
+
+  fastify.log.info("📦 Product Module: Routes registered successfully.");
 }

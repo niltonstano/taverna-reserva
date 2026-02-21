@@ -1,79 +1,79 @@
-import mongoose, { Document, Schema, Types } from "mongoose"; // Importamos o objeto mongoose completo
-import { ORDER_STATUSES, OrderStatus } from "../types/order.type.js";
+import mongoose, { Document, Schema, Types } from "mongoose";
+import { ORDER_STATUSES, OrderStatus } from "../types/order.type.js"; // 👈 Importamos a constante correta
 
 /**
- * ✅ Interface para os Sub-itens
+ * ✅ Interface do Documento no Banco
  */
-interface IOrderSubItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  price: number;
-  subtotal: number;
-}
-
-/**
- * ✅ Interface do Documento (Mongoose)
- */
-export interface IOrderDocument extends Document {
+export interface IOrderDB extends Document {
   userId: Types.ObjectId;
-  items: IOrderSubItem[];
-  totalPrice: number;
-  status: OrderStatus;
+  customerEmail: string;
   idempotencyKey: string;
+  items: {
+    productId: Types.ObjectId;
+    name: string;
+    quantity: number;
+    priceCents: number;
+    subtotalCents: number;
+  }[];
+  totalPriceCents: number;
+  shippingPriceCents: number;
+  status: OrderStatus;
+  address: string;
+  zipCode: string;
+  shipping: {
+    service: string;
+    company: string;
+    priceCents: number;
+    deadline: number;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
 
-const OrderSchema = new Schema<IOrderDocument>(
+const orderSchema = new Schema<IOrderDB>(
   {
     userId: {
       type: Schema.Types.ObjectId,
-      ref: "Customer",
       required: true,
+      ref: "Customer",
       index: true,
     },
+    customerEmail: { type: String, required: true },
+    idempotencyKey: { type: String, required: true },
     items: [
       {
-        productId: { type: String, required: true },
+        productId: { type: Schema.Types.ObjectId, required: true },
         name: { type: String, required: true },
         quantity: { type: Number, required: true, min: 1 },
-        price: { type: Number, required: true, min: 0 },
-        subtotal: { type: Number, required: true, min: 0 },
+        priceCents: { type: Number, required: true },
+        subtotalCents: { type: Number, required: true },
       },
     ],
-    totalPrice: {
-      type: Number,
-      required: true,
-      min: 0,
-    },
+    totalPriceCents: { type: Number, required: true },
+    shippingPriceCents: { type: Number, required: true, default: 0 },
     status: {
       type: String,
-      enum: Array.from(ORDER_STATUSES),
+      enum: ORDER_STATUSES,
       default: "pending",
       index: true,
     },
-    idempotencyKey: {
-      type: String,
-      required: true,
-      unique: true,
+    address: { type: String, required: true },
+    zipCode: { type: String, required: true },
+    shipping: {
+      service: { type: String, required: true },
+      company: { type: String, required: true },
+      priceCents: { type: Number, required: true },
+      deadline: { type: Number, required: true },
     },
   },
   {
     timestamps: true,
     versionKey: false,
-  }
+  },
 );
 
-/**
- * ✅ Índices para performance e segurança
- */
-OrderSchema.index({ userId: 1, idempotencyKey: 1 }, { unique: true });
-OrderSchema.index({ createdAt: -1 });
+// 🛡️ Segurança: Índice único composto para Idempotência
+orderSchema.index({ userId: 1, idempotencyKey: 1 }, { unique: true });
 
-/**
- * ✅ Ajuste de Produção: Evita o erro "OverwriteModelError" ao reiniciar o servidor.
- * Verificamos se o modelo já existe no objeto 'models' do mongoose antes de criá-lo.
- */
 export const OrderModel =
-  mongoose.models.Order || mongoose.model<IOrderDocument>("Order", OrderSchema);
+  mongoose.models.Order || mongoose.model<IOrderDB>("Order", orderSchema);

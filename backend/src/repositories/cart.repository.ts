@@ -1,100 +1,109 @@
-import { CartModel, ICart } from "../models/cart.model.js";
-import { Types, ClientSession, UpdateQuery } from "mongoose";
+import { ClientSession, Types, UpdateQuery } from "mongoose";
+import { CartModel, ICartDB } from "../models/cart.model.js";
 
-/**
- * Interface para representar o Carrinho Populado (Read Model)
- * Isso elimina a necessidade de 'any' ou 'unknown' no Service.
- */
-export interface ICartPopulated extends Omit<ICart, 'items'> {
+// 🚚 Interface de População ajustada para suportar o cálculo de frete
+export interface ICartPopulated extends Omit<ICartDB, "items"> {
   items: Array<{
     productId: {
       _id: Types.ObjectId;
       name: string;
       price: number;
+      stock: number;
+      active: boolean;
+      image?: string;
+      weight: number;
+      dimensions: {
+        width: number;
+        height: number;
+        length: number;
+      };
     };
     quantity: number;
   }>;
 }
 
 export class CartRepository {
-  
   /**
-   * Busca o carrinho populando os produtos.
-   * ✅ Retorna ICartPopulated para garantir tipagem forte no CheckoutService.
+   * 🔍 Busca o carrinho populando os dados do produto.
+   * Lean() é usado para performance em operações de leitura.
    */
   async findByUserId(userId: string): Promise<ICartPopulated | null> {
     if (!Types.ObjectId.isValid(userId)) return null;
-
     return await CartModel.findOne({ userId: new Types.ObjectId(userId) })
-      .populate({
-        path: "items.productId",
-        select: "_id name price" // Traz apenas o necessário para performance
-      })
+      .populate("items.productId")
       .lean<ICartPopulated>()
       .exec();
   }
 
   /**
-   * Atualização Atômica de Itens.
-   * ✅ Previne condições de corrida (Race Conditions) no carrinho.
+   * ⚛️ Adição Atômica
+   * Previne race conditions no incremento de quantidade e criação de carrinho.
    */
-  async updateItemAtomatic(userId: string, productId: string, quantity: number): Promise<ICart | null> {
-    const userObjId = new Types.ObjectId(userId);
-    const prodObjId = new Types.ObjectId(productId);
+  async addItemAtomic(
+    userId: string,
+    productId: string,
+    quantity: number,
+    session?: ClientSession,
+  ): Promise<boolean> {
+    const uId = new Types.ObjectId(userId);
+    const pId = new Types.ObjectId(productId);
 
-    // Tenta incrementar se o produto já existir no array
-    let cart = await CartModel.findOneAndUpdate(
-      { userId: userObjId, "items.productId": prodObjId },
-      { $inc: { "items.$.quantity": quantity } }, 
-      { new: true, lean: true }
+    // 1. Tenta incrementar a quantidade se o produto já existir no array
+    const updateResult = await CartModel.updateOne(
+      { userId: uId, "items.productId": pId },
+      { $inc: { "items.$.quantity": quantity } },
+      { session },
     ).exec();
 
-    // Se não existir, dá o push do novo item
-    if (!cart) {
-      cart = await CartModel.findOneAndUpdate(
-        { userId: userObjId },
-        { $push: { items: { productId: prodObjId, quantity } } },
-        { new: true, upsert: true, lean: true }
+    // 2. Se não existia, faz o push do novo item (upsert garante a existência do doc)
+    if (updateResult.modifiedCount === 0) {
+      await CartModel.updateOne(
+        { userId: uId },
+        { $push: { items: { productId: pId, quantity } } },
+        { upsert: true, session },
       ).exec();
     }
-    
-    return cart as ICart | null;
+
+    return true;
   }
 
   /**
-   * Atualização genérica com suporte a Sessão (Transações).
-   * ✅ Substituído 'any' por UpdateQuery<ICart>.
+   * 🗑️ Remove um item específico usando $pull (Operação atômica)
    */
-  async update(userId: string, updateData: UpdateQuery<ICart>, session?: ClientSession): Promise<ICart | null> {
-    if (!Types.ObjectId.isValid(userId)) return null;
+  async removeItem(userId: string, productId: string): Promise<ICartDB | null> {
+    if (!Types.ObjectId.isValid(userId) || !Types.ObjectId.isValid(productId))
+      return null;
 
     return await CartModel.findOneAndUpdate(
       { userId: new Types.ObjectId(userId) },
-      updateData,
-      { new: true, session, lean: true } 
-    ).exec() as ICart | null;
+      {
+        $pull: { items: { productId: new Types.ObjectId(productId) } },
+      } as UpdateQuery<ICartDB>,
+      { new: true, lean: true },
+    ).exec();
   }
 
   /**
-   * Limpa o carrinho.
-   * ✅ Importante: Em produção, costumamos zerar os itens em vez de deletar o documento 
-   * para manter as configurações do carrinho do usuário.
+   * 🧹 Limpa o carrinho mantendo o documento do usuário
+   * 🛡️ Resiliente a variações de tipo (ObjectId vs String)
    */
   async clearCart(userId: string, session?: ClientSession): Promise<boolean> {
     if (!Types.ObjectId.isValid(userId)) return false;
 
     const result = await CartModel.updateOne(
-      { userId: new Types.ObjectId(userId) }, 
-      { $set: { items: [] } },
-      { session }
+      {
+        $or: [{ userId: new Types.ObjectId(userId) }, { userId: userId }],
+      },
+      {
+        $set: {
+          items: [],
+          totalPriceCents: 0,
+          updatedAt: new Date(),
+        },
+      },
+      { session },
     ).exec();
-    
-    return result.modifiedCount > 0;
-  }
 
-  async deleteByUserId(userId: string): Promise<boolean> {
-    if (!Types.ObjectId.isValid(userId)) return false;
-    const result = await CartModel.deleteOne({ userId: new Types.ObjectId(userId) }).exec();
-    return result.deletedCount > 0;
+    return result.acknowledged;
   }
 }

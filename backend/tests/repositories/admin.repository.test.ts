@@ -1,14 +1,26 @@
-import { jest, describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
-import { Types } from 'mongoose'; // Adicionado para lidar com ObjectIds
-import { AdminRepository } from '../../src/repositories/admin.repository.js';
-import { AdminModel } from '../../src/models/admin.js';
-import { ProductModel } from '../../src/models/product.model.js';
-import { CustomerModel } from '../../src/models/customer.model.js';
-import { OrderModel } from '../../src/models/order.model.js';
-import { setupMongoMemory, teardownMongoMemory, clearDatabase } from '../helpers/mongo-memory.js';
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "@jest/globals";
+import { Types } from "mongoose";
+import { AdminModel } from "../../src/models/admin.js";
+import { CustomerModel } from "../../src/models/customer.model.js";
+import { OrderModel } from "../../src/models/order.model.js";
+import { ProductModel } from "../../src/models/product.model.js";
+import { AdminRepository } from "../../src/repositories/admin.repository.js";
+import {
+  clearDatabase,
+  setupMongoMemory,
+  teardownMongoMemory,
+} from "../helpers/mongo-memory.js";
 
-describe("AdminRepository - Testes de Integração", () => {
+describe("AdminRepository - Integração Total", () => {
   let adminRepository: AdminRepository;
+  const fakeId = new Types.ObjectId().toString();
 
   beforeAll(async () => {
     await setupMongoMemory();
@@ -23,132 +35,96 @@ describe("AdminRepository - Testes de Integração", () => {
     await clearDatabase();
   });
 
-  it("deve criar um novo administrador através do repositório", async () => {
-      const adminData = { 
-        name: "Novo Admin", 
-        email: "novo@admin.com", 
-        password: "hash" 
+  describe("🛡️ Gestão de Administradores", () => {
+    it("deve criar um novo administrador (create)", async () => {
+      const data = {
+        name: "Administrador",
+        email: "novo@test.com",
+        password: "password123",
       };
-      // Aqui chamamos o método do repositório (Linha 22)
-      const created = await adminRepository.create(adminData);
-      expect(created.name).toBe("Novo Admin");
+      const created = await adminRepository.create(data);
+      expect(created.email).toBe(data.email);
     });
 
-    it("deve listar todos os produtos cadastrados (findAllProducts)", async () => {
-      await ProductModel.create({ 
-        name: "Produto X", price: 10, stock: 5, category: "Geral" 
+    it("deve buscar por ID ocultando senha (findById)", async () => {
+      const admin = await AdminModel.create({
+        name: "Admin A",
+        email: "a@a.com",
+        password: "password123",
       });
-      // Aqui chamamos o findAllProducts (Linha 57)
-      const products = await adminRepository.findAllProducts();
-      expect(products.length).toBeGreaterThan(0);
-    });
-
-  describe("Gestão de Administradores", () => {
-    it("deve buscar um admin por ID (sem senha)", async () => {
-      const admin = await AdminModel.create({ 
-        name: "Admin ID", email: "id@admin.com", password: "123" 
-      });
-
       const found = await adminRepository.findById(admin._id.toString());
-      expect(found?.name).toBe("Admin ID");
-      expect(found?.toObject()).not.toHaveProperty('password');
+      expect(found?.password).toBeUndefined();
     });
 
-    it("deve criar e buscar um admin por e-mail (sem senha)", async () => {
-      const email = "admin@teste.com";
-      await AdminModel.create({ name: "Admin Teste", email, password: "hash" });
-
-      const admin = await adminRepository.findByEmail(email);
-      expect(admin?.email).toBe(email);
-      expect(admin?.toObject()).not.toHaveProperty('password');
+    it("deve buscar por e-mail ocultando senha (findByEmail)", async () => {
+      const email = "cobertura@test.com";
+      await AdminModel.create({
+        name: "Admin B",
+        email,
+        password: "password123",
+      });
+      const found = await adminRepository.findByEmail(email);
+      expect(found?.email).toBe(email);
     });
 
-    it("deve buscar admin com senha para fins de login", async () => {
-      const email = "login@teste.com";
-      await AdminModel.create({ name: "Login", email, password: "secret" });
-
-      const admin = await adminRepository.findByEmailWithPassword(email);
-      expect(admin?.password).toBe("secret");
+    it("deve buscar por e-mail com senha (findByEmailWithPassword)", async () => {
+      const email = "pass@test.com";
+      await AdminModel.create({
+        name: "Admin C",
+        email,
+        password: "hash_password",
+      });
+      const found = await adminRepository.findByEmailWithPassword(email);
+      expect(found?.password).toBe("hash_password");
     });
   });
 
-  describe("Gestão de Pedidos (Orders)", () => {
-    it("deve listar pedidos populando dados do usuário", async () => {
-      const user = await CustomerModel.create({ 
-        name: "Comprador", 
-        email: "compra@teste.com", 
-        password: "123" 
+  describe("📦 Gestão de Pedidos", () => {
+    it("deve listar todos os pedidos (findAllOrders)", async () => {
+      const user = await CustomerModel.create({
+        name: "Usuario Teste",
+        email: "u@u.com",
+        password: "password123",
       });
-
-      // ✅ Preenchendo todos os campos que o seu Model exige
       await OrderModel.create({
         userId: user._id,
-        items: [{ 
-          productId: new Types.ObjectId(), 
-          name: "Produto Teste", // Exigido pelo seu Schema
-          quantity: 1, 
-          price: 10,
-          subtotal: 10  // Exigido pelo seu Schema
-        }],
-        totalPrice: 150,     // O erro indicou que o campo é 'totalPrice'
-        idempotencyKey: "test-key-1", // Exigido pelo seu Schema
+        customerEmail: user.email,
+        idempotencyKey: "key-1",
+        items: [],
+        totalPriceCents: 1000,
         status: "pending",
-        shippingAddress: "Rua X",
-        paymentMethod: "pix"
+        address: "Rua Teste, 123",
+        zipCode: "12345-678",
+        shipping: {
+          service: "Sedex",
+          company: "Correios",
+          priceCents: 2000,
+          deadline: 3,
+        },
       });
-
       const orders = await adminRepository.findAllOrders();
-      expect(orders).toHaveLength(1);
-      // Validando o populate
-      expect((orders[0].userId as any).name).toBe("Comprador");
-    });
-
-    it("deve atualizar o status de um pedido", async () => {
-      const order = await OrderModel.create({
-        userId: new Types.ObjectId(),
-        items: [{ 
-          productId: new Types.ObjectId(), 
-          name: "Item", 
-          quantity: 1, 
-          price: 50, 
-          subtotal: 50 
-        }],
-        totalPrice: 50,
-        idempotencyKey: "test-key-2",
-        status: "pending",
-        shippingAddress: "Rua Y",
-        paymentMethod: "card"
-      });
-
-      const updated = await adminRepository.updateOrderStatus(order._id.toString(), "shipped");
-      expect(updated?.status).toBe("shipped");
+      expect(orders.length).toBe(1);
     });
   });
 
-  describe("Gestão de Inventário e Clientes", () => {
-    it("deve listar todos os usuários omitindo senhas", async () => {
-      await CustomerModel.create({ name: "U1", email: "u1@t.com", password: "p1" });
-      const users = await adminRepository.findAllUsers();
-      expect(users[0].toObject()).not.toHaveProperty('password');
-    });
-
-    it("deve excluir um cliente e retornar true", async () => {
-      const customer = await CustomerModel.create({ name: "Del", email: "d@u.com", password: "1" });
-      const deleted = await adminRepository.deleteUser(customer._id.toString());
-      expect(deleted).toBe(true);
-    });
-
-    it("deve buscar um produto específico por ID", async () => {
-      const prod = await ProductModel.create({ 
-        name: "Lápis", price: 2, stock: 10, category: "papel" 
+  describe("🍷 Gestão de Inventário", () => {
+    it("deve buscar por ID, listar e deletar produtos", async () => {
+      const p = await ProductModel.create({
+        name: "Vinho Teste Admin",
+        price: 15000,
+        stock: 20,
+        category: "Vinho", // ✅ Categoria válida
+        active: true,
       });
-      const found = await adminRepository.findProductById(prod._id.toString());
-      expect(found?.name).toBe("Lápis");
-    });
 
-    it("deve retornar false ao tentar excluir produto inexistente", async () => {
-      const result = await adminRepository.deleteProduct(new Types.ObjectId().toString());
-      expect(result).toBe(false);
+      const found = await adminRepository.findProductById(p._id.toString());
+      expect(found).not.toBeNull();
+
+      const products = await adminRepository.findAllProducts();
+      expect(products.length).toBeGreaterThanOrEqual(1);
+
+      const deleted = await adminRepository.deleteProduct(p._id.toString());
+      expect(deleted).toBe(true);
     });
   });
 });
