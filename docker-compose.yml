@@ -17,17 +17,42 @@ services:
     networks:
       - taverna-network
 
+  # Serviço auxiliar para configurar o ReplicaSet automaticamente
+  mongo-init:
+    image: mongo:latest
+    container_name: taverna_mongo_init
+    networks:
+      - taverna-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    entrypoint: >
+      mongosh --host mongodb:27017 --eval '
+        try {
+          if (rs.status().ok) {
+            console.log("Replica Set já configurado.");
+          }
+        } catch (e) {
+          console.log("Iniciando configuração do Replica Set...");
+          rs.initiate({
+            _id: "rs0",
+            members: [{ _id: 0, host: "mongodb:27017" }]
+          });
+          console.log("Replica Set configurado com sucesso!");
+        }
+      '
+
   api:
     build: ./backend
     container_name: taverna_api
     restart: unless-stopped
     init: true
     ports:
-      - "0.0.0.0:3333:3333"
+      - "3333:3333"
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
-      - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0
+      - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
       - MELHOR_ENVIO_TOKEN=${MELHOR_ENVIO_TOKEN}
@@ -36,8 +61,6 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
-    links:
-      - mongodb:mongodb
     networks:
       - taverna-network
 

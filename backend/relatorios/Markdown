@@ -78,25 +78,40 @@ O projeto utiliza o **Pino** para geração de logs estruturados em JSON. Durant
 
 ## 🔧 Como Executar
 
-1. **Clonar o repositório:**
+Clonar e Configurar:
 
-   ```bash
-   git clone https://github.com/niltonstano/taverna-reserva.git (https://github.com/niltonstano/taverna-reserva.git)
+Bash
+git clone https://github.com/niltonstano/taverna-reserva.git
+cd taverna-reserva
+cp .env.example .env # Não esqueça de preencher as variáveis!
 
-   docker compose up -d --build
+Subir Containers:
+O projeto conta com um serviço de auto-inicialização para o MongoDB Replica Set.
 
-   docker logs taverna_api
+Bash
+docker compose up -d --build
 
-   Principais endpoints
-   API Docs (Swagger): http://localhost:3333/docs
+docker logs taverna_api
 
-    Health Check: http://localhost:3333/api/v1/health
+Popular o Banco (Seed):
+Essencial para a primeira execução para criar o usuário Admin e o catálogo inicial:
 
-    Frontend: http://localhost:8080
-   ```
+Bash
+docker exec -it taverna_api npx tsx src/scripts/seed-master.ts
+
+Principais endpoints
+API Docs (Swagger): http://localhost:3333/docs
+
+Health Check: http://localhost:3333/api/v1/health
+
+Frontend: http://localhost:8080
 
 ```
+
+```
+
 ## Como executar os testes
+
 npm run test:manual-stress
 OBs:(Com IDs validos)
 
@@ -106,18 +121,11 @@ Para focar em segurança/IDOR: npm run test:int
 
 Para verificar o deploy final: npm run test:e2e
 
-
-
 👨‍💻 Autor
 Nilton Alexandre Stano Desenvolvedor Backend com foco em arquiteturas resilientes e performance.
 
 GitHub: https://github.com/niltonstano
 
-npm run test:manual-stress
+```
 
-Para validar tudo: npm test
-
-Para focar em segurança/IDOR: npm run test:int
-
-Para verificar o deploy final: npm run test:e2e
 ```
