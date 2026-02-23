@@ -2,7 +2,7 @@
 
 API de e-commerce desenvolvida com foco em **resiliência, consistência de dados e segurança**, utilizando uma arquitetura escalável com **Fastify, MongoDB (Replica Set) e TypeScript**.
 
-O projeto vai além do CRUD básico, implementando soluções para problemas reais de sistemas distribuídos, como **concorrência de estoque e idempotência de pagamentos**.
+O projeto implementanda soluções para problemas reais de sistemas distribuídos, como **concorrência de estoque e idempotência de pagamentos**.
 
 ---
 
@@ -22,31 +22,6 @@ O sistema de estoque foi validado com **testes de estresse simultâneos**. Se 10
 
 Implementação de **Idempotency Keys** em rotas críticas (Checkout). Isso evita que uma falha de conexão ou um "duplo clique" do usuário resulte em duas cobranças ou dois pedidos idênticos.
 
-````mermaid
-sequenceDiagram
-    participant C as Cliente (Frontend)
-    participant A as Fastify API (Taverna Engine)
-    participant R as Redis/Cache (Lock Layer)
-    participant DB as MongoDB (Replica Set)
-
-    Note over C, A: Request 1 (Click Inicial)
-    C->>A: POST /checkout (Idempotency-Key: "abc-123")
-    A->>R: Verificar/Set Lock ("abc-123")
-    R-->>A: Lock Adquirido (OK)
-
-    Note over C, A: Request 2 (Duplo Click Acidental)
-    C->>A: POST /checkout (Idempotency-Key: "abc-123")
-    A->>R: Verificar Lock ("abc-123")
-    R-->>A: Lock Ativo (Em processamento)
-    A-->>C: 409 Conflict (Operação em curso)
-
-    Note over A, DB: Processamento Request 1
-    A->>DB: Iniciar Transação ACID
-    DB->>DB: Baixa Estoque + Criar Pedido
-    A->>DB: Commit Transação
-    A-->>C: 201 Created (Sucesso)
-    A->>R: Liberar Lock / Cachear Resultado
-
 ### 🧪 Suíte de Testes Profissional
 
 - **Testes de Integração:** Validando o fluxo completo com banco de dados em memória.
@@ -59,7 +34,7 @@ sequenceDiagram
 
 | Tecnologia               | Finalidade                                                       |
 | :----------------------- | :--------------------------------------------------------------- |
-| **Node.js 22 + Fastify** | Runtime e Framework de alta performance (low overhead).          |
+| **Node.js 24 + Fastify** | Runtime e Framework de alta performance (low overhead).          |
 | **TypeScript**           | Desenvolvimento tipado e seguro.                                 |
 | **MongoDB + Mongoose**   | Banco NoSQL com modelagem via Schemas e suporte a Transações.    |
 | **Zod**                  | Validação de esquema e contratos de dados (Type-safety runtime). |
@@ -88,17 +63,19 @@ A aplicação segue os princípios de **Clean Architecture** e **SOLID**:
 - **Logs Estruturados:** Monitoramento de saúde e erros da API em tempo real.
 
 ---
+
 ## 📊 Observabilidade e Resiliência (Logs e Diagnósticos)
 
 O projeto utiliza o **Pino** para geração de logs estruturados em JSON. Durante a execução da suíte de testes ou em produção, você poderá observar logs de nível `WARN (40)` ou `ERROR (50)`.
 
 É importante destacar que:
+
 - **Erros Induzidos:** Grande parte desses logs são comportamentos esperados e induzidos pelos testes de segurança e estresse.
 - **Validação de Bloqueio:** Logs de "Tentativa de acesso não autorizado" ou "BLOQUEIO RBAC" confirmam que as camadas de proteção estão interceptando acessos indevidos com sucesso.
 - **Controle de Concorrência:** Logs de erro em operações de checkout simultâneas são evidências de que o mecanismo de idempotência travou uma requisição duplicada para proteger a integridade financeira da operação.
 
- "Em um sistema resiliente, um log de erro bem rastreado é a prova de que uma falha foi prevista e contida."
----
+## "Em um sistema resiliente, um log de erro bem rastreado é a prova de que uma falha foi prevista e contida."
+
 ## 🔧 Como Executar
 
 1. **Clonar o repositório:**
@@ -108,16 +85,33 @@ O projeto utiliza o **Pino** para geração de logs estruturados em JSON. Durant
 
    docker compose up -d --build
 
-   Acessar a documentação Swagger:
-   http://localhost:3333/docs
-````
+   docker logs taverna_api
+
+   Principais endpoints
+   API Docs (Swagger): http://localhost:3333/docs
+
+    Health Check: http://localhost:3333/api/v1/health
+
+    Frontend: http://localhost:8080
+   ```
+
+```
+## Como executar os testes
+npm run test:manual-stress
+OBs:(Com IDs validos)
+
+Para validar tudo: npm test
+
+Para focar em segurança/IDOR: npm run test:int
+
+Para verificar o deploy final: npm run test:e2e
+
+
 
 👨‍💻 Autor
 Nilton Alexandre Stano Desenvolvedor Backend com foco em arquiteturas resilientes e performance.
 
 GitHub: https://github.com/niltonstano
-
-http://localhost:8080
 
 npm run test:manual-stress
 
@@ -126,3 +120,4 @@ Para validar tudo: npm test
 Para focar em segurança/IDOR: npm run test:int
 
 Para verificar o deploy final: npm run test:e2e
+```

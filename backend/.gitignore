@@ -7,4 +7,4 @@ data/
 *.log
 .vscode/
 .DS_Store
-backend/coverage/
+coverage/

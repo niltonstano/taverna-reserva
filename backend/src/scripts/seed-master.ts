@@ -98,7 +98,7 @@ async function seed() {
     ]);
 
     console.log("👤 Criando Admin...");
-    const hashedPassword = await bcrypt.hash("sua senha_segura_aqui", 10);
+    const hashedPassword = await bcrypt.hash("sua_senha_forte", 10);
     await AdminModel.create({
       name: "Master Admin",
       email: "admin@teste.com",
@@ -130,7 +130,7 @@ async function seed() {
     await ProductModel.insertMany(vinhosFinal);
 
     console.log("\n✅ BANCO POPULADO COM SUCESSO!");
-    console.log("👉 Admin: admin@teste.com | Senha: dmin@123");
+    console.log("👉 Admin: admin@teste.com | Senha: Admin@123");
     console.log("==========================================\n");
 
     await mongoose.connection.close();
