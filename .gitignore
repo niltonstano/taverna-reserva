@@ -31,3 +31,4 @@ coverage/
 # Docker volumes locais
 .mongo-data/
 data/
+mongo-data/

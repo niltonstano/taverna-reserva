@@ -99,10 +99,10 @@ async function seed() {
     ]);
 
     console.log("👤 Criando Admin...");
-    const hashedPassword = await bcrypt.hash("sua_senha_forte", 10);
+    const hashedPassword = await bcrypt.hash("Niltontaverna@19750_vinhos", 10);
     await AdminModel.create({
-      name: "Master Admin",
-      email: "admin@teste.com",
+      name: "Nilton Admin",
+      email: "nilton@teste.com",
       password: hashedPassword,
       role: "admin",
       permissions: ["all"],
