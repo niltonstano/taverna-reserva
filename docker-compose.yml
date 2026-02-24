@@ -5,7 +5,7 @@ services:
     hostname: mongodb
     restart: always
     ports:
-      - "27017:27017"
+      - "27018:27017"
     volumes:
       - ./mongo-data:/data/db
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
@@ -27,29 +27,9 @@ services:
         condition: service_healthy
     entrypoint: >
       bash -c "
-      echo 'Aguardando o MongoDB estabilizar...' ;
-      until mongosh --host mongodb:27017 --eval 'db.runCommand({ping:1})' &>/dev/null; do
-        sleep 2;
-      done;
-      echo 'MongoDB pronto! Verificando Replica Set...' ;
-      mongosh --host mongodb:27017 --eval '
-        try {
-          if (!rs.status().ok) {
-            rs.initiate({
-              _id: \"rs0\",
-              members: [{ _id: 0, host: \"mongodb:27017\" }]
-            });
-            console.log(\"Replica Set inicializado com sucesso!\");
-          } else {
-            console.log(\"Replica Set já estava ativo.\");
-          }
-        } catch (e) {
-          rs.initiate({
-            _id: \"rs0\",
-            members: [{ _id: 0, host: \"mongodb:27017\" }]
-          });
-        }
-      '
+      echo 'Aguardando o MongoDB...' ;
+      until mongosh --host mongodb:27017 --eval 'db.runCommand({ping:1})' &>/dev/null; do sleep 2; done;
+      mongosh --host mongodb:27017 --eval 'try { rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongodb:27017\"}]}); } catch(e) {}'
       "
 
   database-seed:
@@ -64,7 +44,6 @@ services:
         condition: service_healthy
       mongo-init:
         condition: service_completed_successfully
-    # Usa npx tsx para rodar o script TS ignorando erros de loader do Node 22
     entrypoint: ["npx", "tsx", "src/scripts/seed-master.ts"]
 
   api:
@@ -75,25 +54,23 @@ services:
       - "3333:3333"
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-secret_fallback}
       - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
-      - CORS_ORIGIN=http://localhost:8080
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
-      - MELHOR_ENVIO_TOKEN=${MELHOR_ENVIO_TOKEN}
-      - CEP_ORIGEM=${CEP_ORIGEM}
     depends_on:
       mongodb:
         condition: service_healthy
-      mongo-init:
-        condition: service_completed_successfully
       database-seed:
         condition: service_completed_successfully
     networks:
       - taverna-network
 
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=http://localhost:3333/api/v1
     container_name: taverna_web
     restart: unless-stopped
     ports:
