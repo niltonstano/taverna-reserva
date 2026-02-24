@@ -7,7 +7,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db
+      - ./mongo-data:/data/db
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
@@ -17,7 +17,6 @@ services:
     networks:
       - taverna-network
 
-  # Serviço auxiliar para configurar o ReplicaSet automaticamente
   mongo-init:
     image: mongo:latest
     container_name: taverna_mongo_init
@@ -27,40 +26,69 @@ services:
       mongodb:
         condition: service_healthy
     entrypoint: >
+      bash -c "
+      echo 'Aguardando o MongoDB estabilizar...' ;
+      until mongosh --host mongodb:27017 --eval 'db.runCommand({ping:1})' &>/dev/null; do
+        sleep 2;
+      done;
+      echo 'MongoDB pronto! Verificando Replica Set...' ;
       mongosh --host mongodb:27017 --eval '
         try {
-          if (rs.status().ok) {
-            console.log("Replica Set já configurado.");
+          if (!rs.status().ok) {
+            rs.initiate({
+              _id: \"rs0\",
+              members: [{ _id: 0, host: \"mongodb:27017\" }]
+            });
+            console.log(\"Replica Set inicializado com sucesso!\");
+          } else {
+            console.log(\"Replica Set já estava ativo.\");
           }
         } catch (e) {
-          console.log("Iniciando configuração do Replica Set...");
           rs.initiate({
-            _id: "rs0",
-            members: [{ _id: 0, host: "mongodb:27017" }]
+            _id: \"rs0\",
+            members: [{ _id: 0, host: \"mongodb:27017\" }]
           });
-          console.log("Replica Set configurado com sucesso!");
         }
       '
+      "
+
+  database-seed:
+    build: ./backend
+    container_name: taverna_seed
+    networks:
+      - taverna-network
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+    # Usa npx tsx para rodar o script TS ignorando erros de loader do Node 22
+    entrypoint: ["npx", "tsx", "src/scripts/seed-master.ts"]
 
   api:
     build: ./backend
     container_name: taverna_api
     restart: unless-stopped
-    init: true
     ports:
       - "3333:3333"
     environment:
       - NODE_ENV=production
       - JWT_SECRET=${JWT_SECRET}
       - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
+      - CORS_ORIGIN=http://localhost:8080
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
       - MELHOR_ENVIO_TOKEN=${MELHOR_ENVIO_TOKEN}
-      - MELHOR_ENVIO_URL=${MELHOR_ENVIO_URL:-https://sandbox.melhorenvio.com.br}
-      - CEP_ORIGEM=${CEP_ORIGEM:-01001000}
+      - CEP_ORIGEM=${CEP_ORIGEM}
     depends_on:
       mongodb:
         condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
+      database-seed:
+        condition: service_completed_successfully
     networks:
       - taverna-network
 
@@ -80,7 +108,3 @@ services:
 networks:
   taverna-network:
     driver: bridge
-
-volumes:
-  mongo-data:
-    driver: local
