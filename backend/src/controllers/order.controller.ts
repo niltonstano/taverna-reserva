@@ -1,12 +1,24 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { Types } from "mongoose";
+import { z } from "zod";
 import { OrderStatus, VALID_ORDER_STATUSES } from "../domain/order-status.js";
-import { UserRole } from "../middlewares/authorization.js";
+import {
+  createOrderSchema,
+  orderHeadersSchema,
+  orderIdParamSchema,
+} from "../schemas/order.schema.js";
 import { CheckoutService } from "../services/checkout.service.js";
 import { OrderService } from "../services/order.service.js";
-import { CheckoutBody } from "../types/order.type.js";
-import { BadRequestError, NotFoundError } from "../utils/errors.js";
+import {
+  BadRequestError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../utils/errors.js";
 
+/**
+ * 🍷 OrderController
+ * Orquestrador do ciclo de vida de pedidos com foco em segurança e atomicidade.
+ */
 export class OrderController {
   constructor(
     private readonly orderService: OrderService,
@@ -14,26 +26,35 @@ export class OrderController {
   ) {}
 
   /**
-   * 🛒 Checkout com Idempotência
-   * Impede duplicidade de pedidos e cobranças.
+   * 🛒 Checkout com Blindagem de Idempotência
+   * Implementa trava explícita para evitar condições de corrida (Race Conditions).
    */
   public checkout = async (
-    req: FastifyRequest<{ Body: CheckoutBody }>,
+    req: FastifyRequest<{
+      Body: z.infer<typeof createOrderSchema>;
+      Headers: z.infer<typeof orderHeadersSchema>;
+    }>,
     reply: FastifyReply,
   ) => {
+    // 1. Verificação de Identidade (Pre-condition)
     const { id: userId, email } = req.user;
-    const idempotencyKey = req.headers["idempotency-key"] as string;
+    if (!userId || !email) {
+      throw new UnauthorizedError("Identidade do usuário não verificada.");
+    }
 
+    // 2. Extração e Validação de Header (Segurança de Unidade)
+    const idempotencyKey = req.headers["idempotency-key"];
     if (!idempotencyKey) {
       throw new BadRequestError(
-        "A chave de idempotência (idempotency-key) é obrigatória para evitar duplicidade.",
+        "A chave de idempotência é obrigatória para processar o pedido.",
       );
     }
 
+    // 3. Execução do Serviço Atômico
     const result = await this.checkoutService.execute(
       userId,
+      idempotencyKey as string,
       email,
-      idempotencyKey,
       req.body,
     );
 
@@ -45,28 +66,27 @@ export class OrderController {
   };
 
   /**
-   * 🔍 findById (Proteção Anti-IDOR)
-   * Garante que usuários comuns não vejam pedidos alheios.
+   * 🔍 findById (Defesa Anti-IDOR e Anti-Enumeração)
    */
   public findById = async (
-    req: FastifyRequest<{ Params: { id: string } }>,
+    req: FastifyRequest<{ Params: z.infer<typeof orderIdParamSchema> }>,
     reply: FastifyReply,
   ) => {
     const { id } = req.params;
     const { id: userId, role } = req.user;
 
+    // Fail-fast: Sanitização de formato MongoDB para evitar injeção
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestError("O formato do ID fornecido é inválido.");
     }
 
     const order = await this.orderService.findById(id);
 
-    // Lógica de Segurança: Admin vê tudo, Customer só o próprio
-    const isAdmin = role === UserRole.ADMIN;
-    const isOwner = order?.userId.toString() === userId;
+    // 🛡️ Lógica Anti-IDOR: Se não existe ou não pertence ao usuário (e não é admin), retorna 404.
+    const isAdmin = role?.toUpperCase() === "ADMIN";
+    const isOwner = order?.userId?.toString() === userId;
 
     if (!order || (!isAdmin && !isOwner)) {
-      // Retornamos 404 para não confirmar a existência do recurso (Enumeração)
       throw new NotFoundError("Pedido não encontrado.");
     }
 
@@ -77,26 +97,29 @@ export class OrderController {
   };
 
   /**
-   * 📋 Listagem de Pedidos do Usuário Logado
+   * 📋 Listagem de Pedidos com Isolamento de Dados
    */
   public listMyOrders = async (req: FastifyRequest, reply: FastifyReply) => {
     const orders = await this.orderService.listUserOrders(req.user.id);
-    return reply.send({ success: true, data: orders });
+    return reply.send({
+      success: true,
+      count: orders.length,
+      data: orders,
+    });
   };
 
   /**
-   * 📋 Listagem Geral com Paginação (Admin)
+   * 📋 Painel Administrativo (Listagem Geral Paginada)
    */
   public findAll = async (
     req: FastifyRequest<{ Querystring: { page?: string; limit?: string } }>,
     reply: FastifyReply,
   ) => {
-    const { page, limit } = req.query;
+    // Sanitização de Paginação (Garante que valores negativos ou inválidos virem 1)
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 10));
 
-    const result = await this.orderService.listAllOrders(
-      Math.max(1, Number(page) || 1),
-      Math.min(100, Number(limit) || 10),
-    );
+    const result = await this.orderService.listAllOrders(page, limit);
 
     return reply.send({
       success: true,
@@ -105,7 +128,7 @@ export class OrderController {
   };
 
   /**
-   * 🔄 updateStatus (Proteção de Estado e Validação)
+   * 🔄 updateStatus
    */
   public updateStatus = async (
     req: FastifyRequest<{
@@ -117,30 +140,26 @@ export class OrderController {
     const { id } = req.params;
     const { status } = req.body;
 
-    // 1. Validação de formato
     if (!Types.ObjectId.isValid(id)) {
       throw new BadRequestError("ID do pedido inválido.");
     }
 
-    // 2. Fail-Fast: Validação de valor permitido (Zod faria isso, mas aqui blindamos o Controller)
+    // Runtime Guard contra estados não permitidos
     if (!VALID_ORDER_STATUSES.includes(status)) {
-      throw new BadRequestError(`Status '${status}' não é permitido.`);
+      throw new BadRequestError(
+        `O status '${status}' é inválido para a operação.`,
+      );
     }
 
     const updated = await this.orderService.updateOrderStatus(id, status);
 
     if (!updated) {
-      // Se o pedido não existe ou o status já é o mesmo, retornamos feedback claro
-      return reply.send({
-        success: true,
-        message: "O pedido já está no status desejado ou não foi encontrado.",
-        data: null,
-      });
+      throw new NotFoundError("Pedido não encontrado para atualização.");
     }
 
     return reply.send({
       success: true,
-      message: `Pedido atualizado para ${status}`,
+      message: `Status do pedido atualizado para: ${status}`,
       data: updated,
     });
   };

@@ -1,16 +1,18 @@
-// src/controllers/payment.controller.ts
 import { FastifyReply, FastifyRequest } from "fastify";
 import { PaymentService } from "../services/payment.service.js";
 
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
 
-  public async confirm(req: FastifyRequest, reply: FastifyReply) {
-    const { orderId } = req.params as { orderId: string };
-    const { status, transactionId } = req.body as {
-      status: "paid" | "canceled";
-      transactionId?: string;
-    };
+  public confirm = async (
+    req: FastifyRequest<{
+      Params: { orderId: string };
+      Body: { status: "paid" | "canceled"; transactionId?: string };
+    }>,
+    reply: FastifyReply,
+  ) => {
+    const { orderId } = req.params;
+    const { status, transactionId } = req.body;
 
     const order = await this.paymentService.updateStatus(
       orderId,
@@ -27,5 +29,5 @@ export class PaymentController {
         customerEmail: order.customerEmail,
       },
     });
-  }
+  };
 }

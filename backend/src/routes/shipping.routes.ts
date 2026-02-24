@@ -12,6 +12,6 @@ export async function shippingRoutes(fastify: FastifyInstance) {
   const controller = new ShippingController(service);
 
   fastify.post("/calculate", (req, rep) =>
-    controller.calculateCartShipping(req, rep),
+    controller.calculateCartShipping(req as any, rep),
   );
 }

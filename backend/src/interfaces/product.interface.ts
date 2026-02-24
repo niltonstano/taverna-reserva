@@ -6,19 +6,19 @@ import { Types } from "mongoose";
  */
 export interface IProduct {
   name: string;
-  description: string; // Obrigatório para o Controller
+  description: string;
   price: number;
   stock: number;
-  category: string; // Obrigatório para o Controller
-  image_url: string; // Obrigatório para o Controller
+  category: string;
+  image_url: string;
   active: boolean;
   emOferta: boolean;
-  safra: string; // Obrigatório para o Controller
-  uva: string; // Obrigatório para o Controller
-  origem: string; // Obrigatório para o Controller
+  safra: string;
+  uva: string;
+  origem: string;
   pontuacao: number;
   featured: boolean;
-  imageUrl?: string; // Opcional (campo calculado ou alias)
+  imageUrl?: string;
 }
 
 /** * 📦 IProductLean (Persistência)

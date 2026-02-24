@@ -1,13 +1,15 @@
 import { z } from "zod";
 
-export const CheckoutHeadersSchema = z.object({
-  "idempotency-key": z.string().uuid({ message: "UUID obrigatório." }),
-});
+export const CheckoutHeadersSchema = z
+  .object({
+    "idempotency-key": z.string().uuid({ message: "UUID obrigatório." }),
+  })
+  .passthrough();
 
 export const CheckoutBodySchema = z
   .object({
     address: z.string().min(5),
-    zipCode: z.string().min(8),
+    zipCode: z.string().regex(/^\d{5}-?\d{3}$/, "CEP inválido."),
     total: z.number().positive(),
     shipping: z.object({
       service: z.string(),
@@ -15,11 +17,12 @@ export const CheckoutBodySchema = z
       deadline: z.number().int(),
       company: z.string().default("Transportadora"),
     }),
-
     items: z
       .array(
         z.object({
-          productId: z.string(),
+          productId: z
+            .string()
+            .regex(/^[a-f\d]{24}$/i, "ID de produto inválido."),
           quantity: z.number().int().positive(),
         }),
       )

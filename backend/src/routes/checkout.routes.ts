@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import { ZodTypeProvider } from "fastify-type-provider-zod";
 import mongoose from "mongoose";
 import { z } from "zod";
 import { CheckoutController } from "../controllers/checkout.controller.js";
@@ -6,11 +7,14 @@ import { authenticate } from "../middlewares/authorization.js";
 import { CartRepository } from "../repositories/cart.repository.js";
 import { OrderRepository } from "../repositories/order.repository.js";
 import { ProductRepository } from "../repositories/product.repository.js";
+import {
+  CheckoutBodySchema,
+  CheckoutHeadersSchema,
+} from "../schemas/checkout.schema.js";
 import { CheckoutService } from "../services/checkout.service.js";
 
 /**
- * ✅ SCHEMA DE RESPOSTA (Contrato de Saída)
- * Garante que o Fastify serialize os dados corretamente para o Frontend.
+ * ✅ SCHEMA DE RESPOSTA
  */
 export const checkoutResponseSchema = z.object({
   success: z.boolean(),
@@ -21,30 +25,36 @@ export const checkoutResponseSchema = z.object({
       qr_code: z.string(),
       qr_code_base64: z.string(),
       ticket_url: z.string(),
-      payment_id: z.number(),
+      payment_id: z.any(),
     })
     .optional(),
 });
 
 /**
  * 🍷 MÓDULO DE CHECKOUT
- * Centraliza a orquestração de pedidos e integração de pagamento.
  */
 export async function checkoutRoutes(app: FastifyInstance) {
-  // Provider customizado para o fluxo de WhatsApp da Taverna
+  // 1. Vincula o Provider de Tipos
+  const typedApp = app.withTypeProvider<ZodTypeProvider>();
+
+  // 2. Mock do Provider (Satisfazendo a Interface)
   const whatsappProvider = {
-    generatePaymentLink: (id: string, total: number) =>
-      `https://wa.me/5511999999999?text=${encodeURIComponent(
-        `*NOVA RESERVA - TAVERNA*\nID: #${id}\nTotal: R$ ${(total / 100).toFixed(2)}`,
-      )}`,
+    generatePix: async (orderId: string, totalCents: number, email: string) => {
+      const link = `https://wa.me/5511999999999?text=${encodeURIComponent(`ID: #${orderId}`)}`;
+      return {
+        qr_code: link,
+        qr_code_base64: "",
+        ticket_url: link,
+        payment_id: `WA-${Date.now()}`,
+      };
+    },
   };
 
-  // Injeção de Dependências (Clean Architecture)
   const checkoutService = new CheckoutService(
     new OrderRepository(),
     new CartRepository(),
     new ProductRepository(),
-    whatsappProvider,
+    whatsappProvider as any,
     mongoose.connection,
   );
 
@@ -52,31 +62,26 @@ export async function checkoutRoutes(app: FastifyInstance) {
 
   /**
    * 🚀 ENDPOINT: Processamento de Reserva
-   * - preHandler: Garante que apenas usuários autenticados acessem.
-   * - schema: Define os requisitos rígidos de Headers e Response.
    */
-  app.post(
+  typedApp.post(
     "/process",
     {
       preHandler: [authenticate],
       schema: {
-        // ✅ OBRIGATÓRIO: Permite que o 'idempotency-key' passe pelo validador do Fastify
-        headers: z
-          .object({
-            "idempotency-key": z.string({
-              required_error:
-                "O cabeçalho 'idempotency-key' é obrigatório para garantir a unicidade do pedido.",
-            }),
-          })
-          .passthrough(),
+        body: CheckoutBodySchema,
+        headers: CheckoutHeadersSchema,
         response: {
           201: checkoutResponseSchema,
         },
       },
     },
-    // Bind necessário para manter o contexto da classe Controller
-    controller.handle.bind(controller),
+    /**
+     *
+     *
+     *
+     */
+    controller.handle.bind(controller) as any,
   );
 
-  app.log.info("✅ Checkout Routes carregadas com validação de idempotência.");
+  app.log.info("✅ Checkout Routes carregadas.");
 }

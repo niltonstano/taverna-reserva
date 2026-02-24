@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 import {
   CheckoutBodySchema,
   CheckoutHeadersSchema,
@@ -6,11 +7,25 @@ import {
 import { CheckoutService } from "../services/checkout.service.js";
 import { UnauthorizedError } from "../utils/errors.js";
 
+/**
+ * 🚀 CheckoutController
+ * Responsável pela orquestração da finalização da compra.
+ */
 export class CheckoutController {
   constructor(private readonly checkoutService: CheckoutService) {}
 
-  public handle = async (request: FastifyRequest, reply: FastifyReply) => {
-    // 1. Contexto de Usuário (Extraído do JWT/Session)
+  /**
+   * handle
+   * O uso de Generics no FastifyRequest elimina a necessidade de safeParse manual.
+   */
+  public handle = async (
+    request: FastifyRequest<{
+      Body: z.infer<typeof CheckoutBodySchema>;
+      Headers: z.infer<typeof CheckoutHeadersSchema>;
+    }>,
+    reply: FastifyReply,
+  ) => {
+    // 1. Contexto de Usuário (Segurança via JWT)
     const userId = request.user?.id;
     const email = request.user?.email;
 
@@ -18,42 +33,24 @@ export class CheckoutController {
       throw new UnauthorizedError("Usuário não autenticado.");
     }
 
-    // 2. Validação de Cabeçalhos (Idempotency-Key UUID)
-    const headerValidation = CheckoutHeadersSchema.safeParse(request.headers);
+    /**
+     * 💡 NOTA DE PRODUÇÃO:
+     * O 'idempotency-key' e o 'body' já chegam aqui validados
+     * pelo Fastify + ZodTypeProvider. Se estivessem errados,
+     * o Fastify teria retornado 400 automaticamente.
+     */
+    const idempotencyKey = request.headers["idempotency-key"];
 
-    if (!headerValidation.success) {
-      return reply.status(400).send({
-        success: false,
-        error: "Cabeçalho inválido",
-        details: headerValidation.error.format(),
-      });
-    }
-
-    const idempotencyKey = headerValidation.data["idempotency-key"];
-
-    // 3. Validação do Corpo (Dados do Pedido + Frete)
-    const bodyValidation = CheckoutBodySchema.safeParse(request.body);
-
-    if (!bodyValidation.success) {
-      return reply.status(400).send({
-        success: false,
-        error: "Dados do checkout inválidos",
-        details: bodyValidation.error.format(),
-      });
-    }
-
-    // 4. Execução do Serviço
-    // O result contém: { order: IOrderDTO, payment_data: IPaymentData }
+    // 2. Execução do Serviço (Atomicidade)
+    // Passamos diretamente request.body pois ele já está tipado e validado.
     const result = await this.checkoutService.execute(
       userId,
       idempotencyKey,
       email,
-      bodyValidation.data,
+      request.body,
     );
 
-    // 5. Resposta de Sucesso
-    // o spread (...result) para que 'order' e 'payment_data'
-    // fiquem no primeiro nível da resposta, como o teste exige.
+    // 3. Resposta de Sucesso (Flat structure para facilitar o consumo no Front)
     return reply.status(201).send({
       success: true,
       message: "Pedido gerado com sucesso.",
