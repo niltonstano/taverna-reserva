@@ -86,7 +86,8 @@ async function seed() {
     console.log("==========================================");
 
     const uri =
-      process.env.MONGO_URI || "mongodb://mongodb:27017/taverna?replicaSet=rs0";
+      process.env.MONGO_URI ||
+      "MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true";
     await mongoose.connect(uri);
     console.log("📡 Conectado ao MongoDB...");
 
