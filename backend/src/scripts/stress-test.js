@@ -1,56 +1,84 @@
 import axios from "axios";
 import crypto from "crypto";
 
-const API_URL = "http://localhost:3333/api/v1/checkout/process";
-const PRODUCT_ID = "699e000df356232b2addee06";
-const meuTokenAtual =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5OWUwNDBlMTIwNTIzNDNhODhkZTY2NiIsImVtYWlsIjoibmlsdG9uQHRlc3RlLmNvbSIsInJvbGUiOiJhZG1pbiIsInBlcm1pc3Npb25zIjpbImFsbCJdLCJpc3MiOiJ0YXZlcm5hLXJlc2VydmEtYXBpIiwic3ViIjoiNjk5ZTA0MGUxMjA1MjM0M2E4OGRlNjY2IiwiaWF0IjoxNzcxOTYzNDk2LCJleHAiOjE3NzE5OTIyOTZ9.fm8h7cni6Of0cCCq22gQphjelAbUwMPOf5WVvyPh3fo";
+const BASE_URL = "http://localhost:3333/api/v1";
+const meuTokenAtual = "seu_token_aqui"; // Substitua pelo token real do seu usuário
 
-async function run() {
-  console.log("🍷 Taverna Reserva - Iniciando Stress Test (10 Requisições)...");
+async function dispararDezPedidosNoUltimo() {
+  try {
+    // 1️⃣ Pega a vitrine para identificar o último produto automaticamente
+    const { data: response } = await axios.get(`${BASE_URL}/products`);
+    const produtos = response.data;
+    const ultimoProduto = produtos[produtos.length - 1];
 
-  const reqs = Array.from({ length: 10 }).map((_, i) => {
-    return axios
-      .post(
-        API_URL,
-        {
-          address: "Rua da Taverna, 777",
-          zipCode: "12345678",
-          total: 199, // Cálculo: (1 unidade * 189.00) + 10.00 de frete
-          shipping: {
-            service: "SEDEX",
-            price: 10,
-            deadline: 2,
-            company: "Taverna Log",
-          },
-          items: [{ productId: PRODUCT_ID, quantity: 1 }],
-        },
-        {
-          headers: {
-            Authorization: "Bearer " + meuTokenAtual,
-            "idempotency-key": crypto.randomUUID(),
-            "Content-Type": "application/json",
-          },
-        },
-      )
-      .catch((e) => e.response);
-  });
-
-  const results = await Promise.all(reqs);
-
-  console.log("\n--- RELATÓRIO FINAL ---");
-  results.forEach((r, i) => {
-    if (r?.status === 201 || r?.status === 200) {
-      console.log(`✅ Pedido ${i + 1}: PROCESSADO (Status ${r.status})`);
-    } else if (r?.status === 400) {
-      const motivo = JSON.stringify(r.data.message || r.data.errors || r.data);
-      console.log(`❌ Pedido ${i + 1}: FALHOU (400) -> Motivo: ${motivo}`);
-    } else {
-      console.log(
-        `❓ Pedido ${i + 1}: Status inesperado ${r?.status || "Erro de Rede"}`,
-      );
+    if (!ultimoProduto) {
+      console.log("❌ Nenhum produto encontrado no banco.");
+      return;
     }
-  });
+
+    console.log("\n==========================================");
+    console.log(`🎯 ALVO: ${ultimoProduto.name}`);
+    console.log(`📊 ESTOQUE ATUAL: ${ultimoProduto.stock}`);
+    console.log("🚀 DISPARANDO 10 PEDIDOS SIMULTÂNEOS...");
+    console.log("==========================================\n");
+
+    // 2️⃣ Cria o "tiro" de 10 pedidos ao mesmo tempo
+    const pedidos = Array.from({ length: 10 }).map((_, i) => {
+      return axios
+        .post(
+          `${BASE_URL}/checkout/process`,
+          {
+            address: "Rua do Stress Test, 100",
+            zipCode: "01001000",
+            total: ultimoProduto.price + 10, // Preço + 10 de frete
+            shipping: {
+              service: "SEDEX",
+              price: 10,
+              deadline: 1,
+              company: "Taverna Log",
+            },
+            items: [
+              {
+                productId: ultimoProduto._id,
+                quantity: 1,
+                price: ultimoProduto.price,
+              },
+            ],
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${meuTokenAtual}`,
+              "idempotency-key": crypto.randomUUID(), // Chave única para cada um dos 10 pedidos
+              "Content-Type": "application/json",
+            },
+          },
+        )
+        .catch((e) => e.response);
+    });
+
+    // 3️⃣ Executa a corrida
+    const resultados = await Promise.all(pedidos);
+
+    // 4️⃣ Relatório Final
+    let sucessos = 0;
+    resultados.forEach((r, i) => {
+      if (r?.status === 201 || r?.status === 200) {
+        sucessos++;
+        console.log(`✅ Pedido ${i + 1}: PROCESSADO`);
+      } else {
+        console.log(
+          `❌ Pedido ${i + 1}: FALHOU (${r?.status}) -> ${r?.data?.message}`,
+        );
+      }
+    });
+
+    console.log("\n==========================================");
+    console.log(`🏆 TOTAL DE PEDIDOS CONCLUÍDOS: ${sucessos}`);
+    console.log(`📉 ESTOQUE FINAL ESPERADO: ${ultimoProduto.stock - sucessos}`);
+    console.log("==========================================\n");
+  } catch (error) {
+    console.error("❌ Erro na operação:", error.message);
+  }
 }
 
-run();
+dispararDezPedidosNoUltimo();

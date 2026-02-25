@@ -85,21 +85,54 @@ git clone https://github.com/niltonstano/taverna-reserva.git
 cd taverna-reserva
 cp .env.example .env # Não esqueça de preencher as variáveis!
 
-Subir Containers:
-O projeto conta com um serviço de auto-inicialização para o MongoDB Replica Set.
+🛠️ Como Subir o Projeto
+Siga os passos abaixo para replicar o ambiente de desenvolvimento localmente.
 
-Bash
+1. Pré-requisitos
+   Certifique-se de ter instalado em sua máquina:
+
+Docker
+
+Docker Compose
+
+2. Configuração das Variáveis de Ambiente
+   Crie um arquivo .env na raiz da pasta backend/ seguindo o modelo abaixo para garantir que o sistema de seed e a conexão com o banco funcionem corretamente:
+
+Snippet de código
+
+# Banco de Dados
+
+MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
+
+# Credenciais Iniciais do Administrador (Seed)
+
+INITIAL_ADMIN_EMAIL=admin@taverna.com
+INITIAL_ADMIN_PASSWORD=SuaSenhaSeguraAqui
+INITIAL_ADMIN_NAME=Admin Master
+
+# Segurança
+
+JWT_SECRET=sua_chave_secreta_aqui 3. Subindo os Containers
+No terminal, dentro da pasta raiz do projeto, execute:
+
+```bash
 docker compose up -d --build
+Este comando irá construir as imagens, configurar a rede e subir os serviços de API, Banco de Dados e o Frontend.
 
-docker logs taverna_api
+4. Populando o Banco (Seed)
+   Para criar o usuário administrador e os vinhos base com estoque inicial, execute o script de sincronização segura:
 
-Popular o Banco (Seed):
-Essencial para a primeira execução para criar o usuário Admin e o catálogo inicial:
+docker compose exec api npx tsx src/scripts/seed-master.ts
 
-Bash
-docker exec -it taverna_api npx tsx src/scripts/seed-master.ts
+  🛡️ Diferenciais do Projeto
+Data Seed Seguro: O sistema de população de dados não expõe credenciais no código fonte, utilizando variáveis de ambiente para gerenciar o acesso administrativo inicial.
 
-Principais endpoints
+Ambiente Isolado: Todo o ecossistema (Banco, API e Web) é orquestrado via Docker, garantindo que o projeto rode exatamente da mesma forma em qualquer máquina.
+
+Integração de Estoque: Scripts preparados para reset de estoque e sincronização de produtos para testes de estresse e performance.
+
+    Principais endpoints
+
 API Docs (Swagger): http://localhost:3333/docs
 
 Health Check: http://localhost:3333/api/v1/health
@@ -125,6 +158,8 @@ Para verificar o deploy final: npm run test:e2e
 Nilton Alexandre Stano Desenvolvedor Backend com foco em arquiteturas resilientes e performance.
 
 GitHub: https://github.com/niltonstano
+
+```
 
 ```
 

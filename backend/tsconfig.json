@@ -1,9 +1,8 @@
 {
   "compilerOptions": {
-    "types": ["jest", "node"],
     "target": "ESNext",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "CommonJS",
+    "moduleResolution": "node",
     "baseUrl": ".",
     "outDir": "dist",
     "rootDir": ".",
@@ -13,9 +12,10 @@
     "strict": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
-    "isolatedModules": true,
+    "isolatedModules": false,
+    "types": ["jest", "node"],
     "typeRoots": ["./node_modules/@types", "./src/@types"]
   },
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "tests"]
+  "exclude": ["node_modules", "dist"]
 }
