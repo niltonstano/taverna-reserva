@@ -1,4 +1,3 @@
-// src/controllers/payment.controller.ts
 import { FastifyReply, FastifyRequest } from "fastify";
 import { PaymentService } from "../services/payment.service.js";
 

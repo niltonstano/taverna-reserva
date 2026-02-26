@@ -1,4 +1,3 @@
-// src/services/payment.service.ts
 import mongoose from "mongoose";
 import { OrderModel } from "../models/order.model.js";
 import { ProductRepository } from "../repositories/product.repository.js";

@@ -1,4 +1,3 @@
-// src/services/whatsapp.service.ts
 import { IPaymentProvider } from "../interfaces/payment.interface.js";
 
 export class WhatsAppService implements IPaymentProvider {

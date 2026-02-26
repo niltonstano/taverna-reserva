@@ -1,4 +1,3 @@
-// src/interfaces/payment.interface.ts
 import { PaymentData } from "../types/order.type.js";
 
 /**
