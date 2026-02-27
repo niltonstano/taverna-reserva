@@ -1,12 +1,11 @@
 import bcrypt from "bcryptjs";
 import * as dotenv from "dotenv";
 import mongoose from "mongoose";
-import path from "path";
 import { AdminModel } from "../models/admin.js";
 import { ProductModel } from "../models/product.model.js";
 
 // 1. Configuração do .env usando o caminho absoluto
-dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config();
 
 const vinhosBase = [
   {

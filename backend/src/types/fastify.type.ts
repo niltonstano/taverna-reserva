@@ -16,12 +16,12 @@ declare module "fastify" {
     env: EnvType;
     authenticate: (
       request: import("fastify").FastifyRequest,
-      reply: import("fastify").FastifyReply
+      reply: import("fastify").FastifyReply,
     ) => Promise<void>;
   }
 
   interface FastifyRequest {
-    startTime?: number;
+    startTime: number;
   }
 }
 

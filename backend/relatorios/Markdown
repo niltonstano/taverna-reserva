@@ -2,11 +2,11 @@
 
 API de e-commerce desenvolvida com foco em **resiliência, consistência de dados e segurança**, utilizando uma arquitetura escalável com **Fastify, MongoDB (Replica Set) e TypeScript**.
 
-O projeto implementanda soluções para problemas reais de sistemas distribuídos, como **concorrência de estoque e idempotência de pagamentos**.
+O projeto implementa soluções para problemas reais de sistemas distribuídos, como **concorrência de estoque e idempotência de pagamentos**.
 
 ---
 
-## 🚀 Diferenciais de Engenharia (O que torna este projeto único)
+## 🚀 Diferenciais de Engenharia
 
 Diferente de APIs comuns, este projeto implementa padrões de sistemas de missão crítica:
 
@@ -16,151 +16,115 @@ Utiliza **MongoDB Replica Set** para garantir transações atômicas. No process
 
 ### ⚡ Proteção contra Condição de Corrida (Race Conditions)
 
-O sistema de estoque foi validado com **testes de estresse simultâneos**. Se 10 usuários tentarem comprar o último item ao mesmo tempo, o sistema garante através de travas lógicas e transações que apenas 1 consiga, mantendo a integridade do inventário.
+O sistema de estoque foi validado com **testes de estresse simultâneos**. Se 10 usuários tentarem comprar o último item ao mesmo tempo, o sistema garante através de travas lógicas que apenas 1 consiga, mantendo a integridade do inventário.
 
 ### 🔑 Idempotência de Operações
 
-Implementação de **Idempotency Keys** em rotas críticas (Checkout). Isso evita que uma falha de conexão ou um "duplo clique" do usuário resulte em duas cobranças ou dois pedidos idênticos.
-
-### 🧪 Suíte de Testes Profissional
-
-- **Testes de Integração:** Validando o fluxo completo com banco de dados em memória.
-- **Testes de Estresse:** Simulação de múltiplas requisições simultâneas para validar concorrência.
-- **Segurança (Anti-IDOR):** Testes específicos que garantem que um usuário não consiga acessar dados de terceiros.
+Implementação de **Idempotency Keys** em rotas críticas. Isso evita que falhas de rede ou cliques duplos resultem em cobranças duplicadas ou pedidos repetidos.
 
 ---
 
 ## 🛠️ Stack Tecnológica
 
-| Tecnologia               | Finalidade                                                       |
-| :----------------------- | :--------------------------------------------------------------- |
-| **Node.js 24 + Fastify** | Runtime e Framework de alta performance (low overhead).          |
-| **TypeScript**           | Desenvolvimento tipado e seguro.                                 |
-| **MongoDB + Mongoose**   | Banco NoSQL com modelagem via Schemas e suporte a Transações.    |
-| **Zod**                  | Validação de esquema e contratos de dados (Type-safety runtime). |
-| **JWT + Bcrypt**         | Autenticação robusta e segurança de credenciais.                 |
-| **Melhor Envio API**     | Integração real para cotação de frete e logística.               |
-| **Docker & Compose**     | Orquestração de containers para API e Banco de Dados.            |
-
----
-
-## 🏗️ Arquitetura e Padrões de Projeto
-
-A aplicação segue os princípios de **Clean Architecture** e **SOLID**:
-
-- **Controllers:** Apenas manipulação de entrada e saída (REQ/RES).
-- **Services:** Toda a regra de negócio, isolada e testável.
-- **Repositories:** Abstração da camada de dados (Data Access Layer).
-- **Middlewares/Hooks:** Saneamento de dados automático e logs estruturados com **Pino**.
+| Tecnologia               | Finalidade                                               |
+| :----------------------- | :------------------------------------------------------- |
+| **Node.js 24 + Fastify** | Runtime e Framework de alta performance (low overhead).  |
+| **TypeScript**           | Desenvolvimento tipado e seguro.                         |
+| **MongoDB + Mongoose**   | Banco NoSQL com suporte a Transações e Replica Set.      |
+| **Zod**                  | Validação de esquema e contratos de dados (Type-safety). |
+| **JWT + Bcrypt**         | Autenticação robusta e segurança de credenciais.         |
+| **Docker & Compose**     | Orquestração completa do ecossistema (API, DB, Web).     |
 
 ---
 
 ## 📦 Funcionalidades Principais
 
 - **Gestão de Produtos:** Controle de estoque rigoroso e catálogo dinâmico.
-- **Checkout Inteligente:** Integração com **Melhor Envio** para cotação de frete em tempo real baseada em dimensões e peso.
-- **RBAC (Role Based Access Control):** Níveis de permissão distintos para `Admin` e `Customer`.
-- **Logs Estruturados:** Monitoramento de saúde e erros da API em tempo real.
+- **Checkout Inteligente:** Integração real com **Melhor Envio** para cotação de frete.
+- **RBAC (Role Based Access Control):** Níveis de permissão para `Admin` e `Customer`.
+- **Logs Estruturados:** Monitoramento em tempo real com **Pino**.
 
 ---
 
-## 📊 Observabilidade e Resiliência (Logs e Diagnósticos)
+🔧 Guia de Instalação (Rápido)
 
-O projeto utiliza o **Pino** para geração de logs estruturados em JSON. Durante a execução da suíte de testes ou em produção, você poderá observar logs de nível `WARN (40)` ou `ERROR (50)`.
-
-É importante destacar que:
-
-- **Erros Induzidos:** Grande parte desses logs são comportamentos esperados e induzidos pelos testes de segurança e estresse.
-- **Validação de Bloqueio:** Logs de "Tentativa de acesso não autorizado" ou "BLOQUEIO RBAC" confirmam que as camadas de proteção estão interceptando acessos indevidos com sucesso.
-- **Controle de Concorrência:** Logs de erro em operações de checkout simultâneas são evidências de que o mecanismo de idempotência travou uma requisição duplicada para proteger a integridade financeira da operação.
-
-## "Em um sistema resiliente, um log de erro bem rastreado é a prova de que uma falha foi prevista e contida."
-
-## 🔧 Como Executar
-
-Clonar e Configurar:
-
-Bash
-git clone https://github.com/niltonstano/taverna-reserva.git
-cd taverna-reserva
-cp .env.example .env # Não esqueça de preencher as variáveis!
-
-🛠️ Como Subir o Projeto
-Siga os passos abaixo para replicar o ambiente de desenvolvimento localmente.
-
-1. Pré-requisitos
-   Certifique-se de ter instalado em sua máquina:
-
-Docker
-
-Docker Compose
-
-2. Configuração das Variáveis de Ambiente
-   Crie um arquivo .env na raiz da pasta backend/ seguindo o modelo abaixo para garantir que o sistema de seed e a conexão com o banco funcionem corretamente:
+1. Preparação
+   Bash
+   git clone https://github.com/niltonstano/taverna-reserva.git
+   cd taverna-reserva
+   cp backend/.env.example backend/.env
+2. Configuração do Ambiente (backend/.env)
+   Certifique-se de que a MONGO_URI está configurada para o ambiente Docker:
 
 Snippet de código
 
-# Banco de Dados
+# Conexão para o Replica Set no Docker
 
 MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
 
-# Credenciais Iniciais do Administrador (Seed)
+# Credenciais do Admin Inicial
 
 INITIAL_ADMIN_EMAIL=admin@taverna.com
-INITIAL_ADMIN_PASSWORD=SuaSenhaSeguraAqui
-INITIAL_ADMIN_NAME=Admin Master
+INITIAL_ADMIN_PASSWORD=SuaSenhaSegura
+JWT_SECRET=sua_chave_secreta 3. Subir a Infraestrutura
+Bash
 
-# Segurança
+# Constrói e sobe os serviços (API, MongoDB, Frontend)
 
-JWT_SECRET=sua_chave_secreta_aqui 3. Subindo os Containers
-No terminal, dentro da pasta raiz do projeto, execute:
-
-```bash
 docker compose up -d --build
-Este comando irá construir as imagens, configurar a rede e subir os serviços de API, Banco de Dados e o Frontend.
 
-4. Populando o Banco (Seed)
-   Para criar o usuário administrador e os vinhos base com estoque inicial, execute o script de sincronização segura:
+# Aguarde o banco ficar "healthy" (aprox. 10-15 segundos)
 
-docker compose exec api npx tsx src/scripts/seed-master.ts
+docker compose ps
 
-  🛡️ Diferenciais do Projeto
-Data Seed Seguro: O sistema de população de dados não expõe credenciais no código fonte, utilizando variáveis de ambiente para gerenciar o acesso administrativo inicial.
+# Cria o administrador master e o catálogo de produtos
 
-Ambiente Isolado: Todo o ecossistema (Banco, API e Web) é orquestrado via Docker, garantindo que o projeto rode exatamente da mesma forma em qualquer máquina.
+docker compose exec api node dist/src/scripts/seed-master.js
 
-Integração de Estoque: Scripts preparados para reset de estoque e sincronização de produtos para testes de estresse e performance.
+```📊 Acesso e Documentação
+🌐 Frontend: http://localhost:8080 (Interface de usuário)
 
-    Principais endpoints
+🔌 API Base: http://localhost:3333/api/v1
 
-API Docs (Swagger): http://localhost:3333/docs
+📖 Swagger UI: http://localhost:3333/docs (Documentação interativa)
 
-Health Check: http://localhost:3333/api/v1/health
-
-Frontend: http://localhost:8080
-
+🩺 Health Check: http://localhost:3333/api/v1/health
 ```
 
+```🧪 Resiliência na Prática
+Para testar o comportamento do sistema sob estresse:
+
+Teste de Concorrência: npm run test:manual-stress (Simula 10 compras simultâneas do último item).
+
+Teste de Unidade: npm test (Valida lógica de negócio e Error Handler).
 ```
 
-## Como executar os testes
+```🛑 Comandos de Utilidade
+Cria e liga os containers: docker compose up -d
 
-npm run test:manual-stress
-OBs:(Com IDs validos)
+Ver Logs da API: docker compose logs -f api
 
-Para validar tudo: npm test
+Acompanhar o Seed: docker compose logs -f database-seed
 
-Para focar em segurança/IDOR: npm run test:int
+Parar aplicação: docker compose stop
+(Use um terminal secundario)
 
-Para verificar o deploy final: npm run test:e2e
+Remover tudo (Reset): docker compose down -v
+```
 
 👨‍💻 Autor
-Nilton Alexandre Stano Desenvolvedor Backend com foco em arquiteturas resilientes e performance.
+Nilton Alexandre Stano — Desenvolvedor Backend focado em arquiteturas resilientes.
+(https://github.com/niltonstano/taverna-reserva.git)
 
-GitHub: https://github.com/niltonstano
+✅ Checklist para o Recrutador:
+[ ] Subiu o Docker?
 
-```
+[ ] Rodou o seed-master.js?
 
-```
+[ ] Acessou o Swagger em /docs?
 
-```
+[ ] Viu os logs no terminal com docker compose logs -f api?
+
+[ ] Testou o endpoint de health check?
+
+[ ] Simulou o teste de concorrência?

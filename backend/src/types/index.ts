@@ -1,8 +1,8 @@
-import "fastify";
 import "@fastify/jwt";
+import "fastify";
 
 // 1. Definições de Domínio
-export type UserRole = 'admin' | 'customer';
+export type UserRole = "admin" | "customer";
 
 export interface JWTPayload {
   id: string;
@@ -14,11 +14,14 @@ export interface JWTPayload {
 // 2. Extensão Global dos Módulos
 declare module "fastify" {
   interface FastifyRequest {
-    user: JWTPayload; 
-    startTime?: number;
+    user: JWTPayload;
+    startTime: number;
   }
   interface FastifyInstance {
-    authenticate: (request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply) => Promise<void>;
+    authenticate: (
+      request: import("fastify").FastifyRequest,
+      reply: import("fastify").FastifyReply,
+    ) => Promise<void>;
   }
 }
 

@@ -34,6 +34,7 @@ describe("🔥 Order - Teste de Stress e Concorrência Real", () => {
     testToken = app.jwt.sign({
       id: userId,
       email: "nilton@taverna.com",
+      role: "admin",
     });
 
     console.log("✅ Setup concluído. MongoDB Conectado e Token Gerado.");

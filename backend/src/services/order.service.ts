@@ -1,4 +1,4 @@
-import { Connection, Types } from "mongoose";
+import { ClientSession, Connection, Types } from "mongoose";
 import { OrderRepository } from "../repositories/order.repository.js";
 import { ProductRepository } from "../repositories/product.repository.js";
 import {
@@ -21,7 +21,7 @@ export class OrderService {
   ) {}
 
   /**
-   * 🛒 createOrder (Blindado com Transações)
+   * 🛒 createOrder (Atômico)
    */
   public async createOrder(
     userId: string,
@@ -29,18 +29,15 @@ export class OrderService {
     idempotencyKey: string,
     body: CheckoutBody,
   ): Promise<IOrderDTO> {
-    // 1. Check de Idempotência rápido (evita abrir transação à toa)
+    // 1. Check de Idempotência rápido (Fora da transação para performance)
     const existingOrder = await this.orderRepository.findByIdempotencyKey(
       userId,
       idempotencyKey,
     );
     if (existingOrder) return existingOrder;
 
-    // 2. Início da Transação
-    const session = await this.connection.startSession();
-    session.startTransaction();
-
-    try {
+    // 2. Execução dentro da Transação Gerenciada
+    return await this.runTransaction(async (session) => {
       const processedItems = [];
       let totalItemsCents = 0;
 
@@ -49,7 +46,7 @@ export class OrderService {
         const product = await this.productRepository.updateStock(
           item.productId.toString(),
           item.quantity,
-          session, // Passamos a session para o repositório
+          session,
         );
 
         if (!product) {
@@ -91,23 +88,13 @@ export class OrderService {
         },
       };
 
-      // 4. Criação do Pedido dentro da transação
-      const newOrder = await this.orderRepository.create(orderData, session);
-
-      // 5. Finaliza com sucesso
-      await session.commitTransaction();
-      return newOrder;
-    } catch (error) {
-      // 6. Deu ruim? Rollback automático: o estoque dos produtos volta ao normal
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      await session.endSession();
-    }
+      // 4. Persistência do Pedido
+      return await this.orderRepository.create(orderData, session);
+    });
   }
 
   /**
-   * 🔄 updateOrderStatus (Com rollback de estoque em cancelamento)
+   * 🔄 updateOrderStatus
    */
   public async updateOrderStatus(
     id: string,
@@ -120,33 +107,51 @@ export class OrderService {
       throw new BadRequestError("Pedidos encerrados não podem ser alterados.");
     }
 
-    // Se o novo status for cancelado, devolve o estoque
     if (newStatus === "cancelled") {
       await this.rollbackStock(order.items);
     }
 
-    // O updateStatus no repositório DEVE usar { status: { $ne: newStatus } } para ser atômico
     const updated = await this.orderRepository.updateStatus(id, newStatus);
     if (!updated) throw new InternalServerError("Falha ao atualizar status.");
 
     return updated;
   }
 
+  /**
+   * 🛡️ Utilitário para gerenciar Transações (Wrapper)
+   */
+  private async runTransaction<T>(
+    fn: (session: ClientSession) => Promise<T>,
+  ): Promise<T> {
+    const session = await this.connection.startSession();
+    session.startTransaction();
+    try {
+      const result = await fn(session);
+      await session.commitTransaction();
+      return result;
+    } catch (error) {
+      await session.abortTransaction();
+      throw error; // Repassa para o middleware de erro global
+    } finally {
+      session.endSession();
+    }
+  }
+
   private async rollbackStock(items: any[]) {
-    const tasks = items.map((item) =>
-      this.productRepository.updateStock(
-        item.productId.toString(),
-        -item.quantity,
+    await Promise.all(
+      items.map((item) =>
+        this.productRepository.updateStock(
+          item.productId.toString(),
+          -item.quantity,
+        ),
       ),
     );
-    await Promise.all(tasks);
   }
 
   private toCents(value: number): number {
     return Math.round((value || 0) * 100);
   }
 
-  // Métodos de listagem simples
   public async findById(id: string) {
     return this.orderRepository.findById(id);
   }

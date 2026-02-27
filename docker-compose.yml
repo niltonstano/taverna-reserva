@@ -8,6 +8,7 @@ services:
       - "27018:27017"
     volumes:
       - ./mongo-data:/data/db
+    # Habilita o Replica Set para suportar Transações ACID
     command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
@@ -25,11 +26,13 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+    # Inicializa o Replica Set via comando mongosh
     entrypoint: >
       bash -c "
       echo 'Aguardando o MongoDB...' ;
       until mongosh --host mongodb:27017 --eval 'db.runCommand({ping:1})' &>/dev/null; do sleep 2; done;
-      mongosh --host mongodb:27017 --eval 'try { rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongodb:27017\"}]}); } catch(e) {}'
+      echo 'Inicializando Replica Set rs0...';
+      mongosh --host mongodb:27017 --eval 'try { rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"mongodb:27017\"}]}); } catch(e) { print(\"RS já iniciado\"); }'
       "
 
   database-seed:
@@ -37,6 +40,8 @@ services:
     container_name: taverna_seed
     networks:
       - taverna-network
+    env_file:
+      - ./backend/.env
     environment:
       - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
     depends_on:
@@ -44,20 +49,22 @@ services:
         condition: service_healthy
       mongo-init:
         condition: service_completed_successfully
-    entrypoint: ["npx", "tsx", "src/scripts/seed-master.ts"]
+    # Executa o Seed usando o código compilado em dist
+    entrypoint: ["node", "dist/src/scripts/seed-master.js"]
 
   api:
     build: ./backend
     container_name: taverna_api
+    env_file:
+      - ./backend/.env
     restart: unless-stopped
     ports:
       - "3333:3333"
     environment:
       - NODE_ENV=production
-      - JWT_SECRET=${JWT_SECRET:-secret_fallback}
+      - HOST=0.0.0.0
+      - PORT=3333
       - MONGO_URI=mongodb://mongodb:27017/taverna?replicaSet=rs0&directConnection=true
-      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL}
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD}
     depends_on:
       mongodb:
         condition: service_healthy
